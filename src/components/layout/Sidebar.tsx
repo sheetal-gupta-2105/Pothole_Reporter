@@ -9,8 +9,10 @@ import {
   Settings,
   ShieldAlert,
   Radio,
+  LogOut,
 } from 'lucide-react';
 import { useReports } from '../../context/ReportContext';
+import { useAuth } from '../../hooks/useAuth';
 
 interface SidebarProps {
   onNavClick?: () => void;
@@ -18,6 +20,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
   const { reports, duplicates } = useReports();
+  const { user, profile, signOut, isDemoUser } = useAuth();
 
   const pendingDuplicatesCount = duplicates.filter(
     (d) => d.status === 'pending'
@@ -138,6 +141,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
             </NavLink>
           );
         })}
+
+        {/* Citizen Auth Indicator in Sidebar */}
+        {user && (
+          <div className="pt-3 mt-2 border-t border-slate-100">
+            <div className="px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+              <div className="min-w-0 pr-2">
+                <p className="text-xs font-bold text-slate-800 truncate">
+                  {profile?.fullName || 'Citizen'}
+                </p>
+                <p className="text-[10px] text-slate-400 font-mono truncate">
+                  {isDemoUser ? 'Demo Citizen' : user.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => signOut()}
+                aria-label="Sign out"
+                title="Sign out of portal"
+                className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* Footer Info */}

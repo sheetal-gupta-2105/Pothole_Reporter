@@ -28,15 +28,27 @@ class PotholeDetector:
         self.classes = list(self.model.names.values())
 
     def _load_model(self) -> YOLO:
-        # Check if local path exists first
+        # Check if local file exists first (in model_source or backend/models/)
+        local_models_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "models", self.filename)
+        )
         if os.path.isfile(self.model_source):
             weights_path = self.model_source
+        elif os.path.isfile(local_models_path):
+            weights_path = local_models_path
         else:
-            # Download or use cached from Hugging Face
-            weights_path = hf_hub_download(
-                repo_id=self.model_source,
-                filename=self.filename,
-            )
+            # Download or use cached from Hugging Face (try offline cache first)
+            try:
+                weights_path = hf_hub_download(
+                    repo_id=self.model_source,
+                    filename=self.filename,
+                    local_files_only=True,
+                )
+            except Exception:
+                weights_path = hf_hub_download(
+                    repo_id=self.model_source,
+                    filename=self.filename,
+                )
 
         model = YOLO(weights_path)
         # Move to appropriate device

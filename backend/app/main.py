@@ -3,12 +3,13 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import List
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 
 from .detector import PotholeDetector
-from .schemas import DetectionResponse, HealthResponse
+from .schemas import DetectionResponse, HealthResponse, AuthenticatedCitizen
+from .auth import get_current_citizen
 
 # Configuration constants
 MAX_UPLOAD_SIZE_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10")) * 1024 * 1024
@@ -65,6 +66,14 @@ async def health_check():
         device=detector.device,
         version="2.0.0",
     )
+
+
+@app.get("/api/auth/me", response_model=AuthenticatedCitizen)
+async def get_current_user_profile(
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Retrieve verified citizen profile from Supabase JWT token."""
+    return citizen
 
 
 @app.post("/api/detect", response_model=DetectionResponse)

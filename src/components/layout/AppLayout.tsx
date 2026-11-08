@@ -7,16 +7,20 @@ import {
   ShieldCheck,
   AlertTriangle,
   Info,
+  User,
+  LogOut,
 } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { ToastContainer } from '../common/Toast';
 import { Button } from '../common/Button';
 import { useReports } from '../../context/ReportContext';
+import { useAuth } from '../../hooks/useAuth';
 
 export const AppLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { resetToDefaults, duplicates } = useReports();
+  const { resetToDefaults, duplicates, showToast } = useReports();
+  const { user, profile, signOut, isDemoUser } = useAuth();
   const location = useLocation();
 
   const pendingDuplicates = duplicates.filter((d) => d.status === 'pending').length;
@@ -113,6 +117,38 @@ export const AppLayout: React.FC = () => {
                 New Report
               </Button>
             </Link>
+
+            {/* Citizen Profile & Logout */}
+            {user && (
+              <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-slate-200">
+                <div className="hidden xl:flex flex-col text-right">
+                  <span className="text-xs font-bold text-slate-900 leading-tight">
+                    {profile?.fullName || 'Citizen Reporter'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono leading-tight">
+                    {isDemoUser ? 'Demo Session' : user.email}
+                  </span>
+                </div>
+                <div
+                  className="h-8 w-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs"
+                  title={user.email || 'Citizen'}
+                >
+                  <User className="h-4 w-4 text-slate-600" />
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await signOut();
+                    showToast('info', 'Signed Out', 'You have been logged out of the citizen portal.');
+                  }}
+                  aria-label="Sign out"
+                  title="Sign out of portal"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         </header>
 

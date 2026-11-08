@@ -108,3 +108,48 @@ To use a custom-trained YOLO `.pt` model:
    $env:MODEL_REPO_OR_PATH="models/my_pothole_model.pt"
    ```
 3. Restart Uvicorn. The backend will automatically load your local checkpoint.
+
+---
+
+### `GET /api/auth/me`
+Protected citizen authentication endpoint. Cryptographically verifies the Supabase JWT Bearer token supplied in the `Authorization: Bearer <token>` header against the Supabase Auth service. Derives the citizen user ID and profile information directly from the verified token.
+
+**Headers:**
+- `Authorization: Bearer <supabase_jwt_access_token>`
+
+**Sample Response (HTTP 200):**
+```json
+{
+  "user_id": "7b841793-9c86-44ce-8dbd-0fe82a4d0922",
+  "email": "citizen@example.com",
+  "role": "authenticated",
+  "app_metadata": {
+    "provider": "email"
+  },
+  "user_metadata": {
+    "full_name": "Aarav Sharma"
+  }
+}
+```
+
+**Error Responses:**
+- `HTTP 401 Unauthorized` (with `WWW-Authenticate: Bearer` header): Returned when Authorization header is missing, uses invalid scheme, token is empty, token signature verification fails, or token is expired.
+- `HTTP 503 Service Unavailable`: Returned when backend Supabase credentials have not been configured in `backend/.env`.
+
+---
+
+## ⚡ Supabase Backend Client & Auth Module
+
+The backend includes a reusable Supabase client module in [`app/supabase_client.py`](app/supabase_client.py) and token verification dependency in [`app/auth.py`](app/auth.py).
+
+### Configuration (`backend/.env`):
+```bash
+SUPABASE_URL=https://<your-project-id>.supabase.co
+SUPABASE_SECRET_KEY=<your-service-role-secret-key>
+```
+
+### Verification Flow:
+1. Citizen logs in via the React frontend and obtains an access token (JWT).
+2. Frontend sends requests to protected endpoints with `Authorization: Bearer <jwt>`.
+3. Backend calls `client.auth.get_user(token)` to verify the token signature cryptographically against Supabase.
+4. User ID is extracted from the verified token (`str(user.id)`). Client-supplied user IDs are never trusted.

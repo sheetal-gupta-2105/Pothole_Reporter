@@ -118,6 +118,7 @@ src/
 │   └── useReports.ts          # Custom hook for consuming reports state
 ├── components/
 │   ├── common/                # Reusable Badges, Buttons, Cards, Modals, Toasts, EmptyStates
+│   ├── auth/                  # ProtectedRoute component
 │   ├── layout/                # Persistent desktop sidebar, mobile drawer, header layout
 │   ├── dashboard/             # StatCards, status & priority distribution charts, ward summary
 │   ├── submission/            # Image uploader with validation, GPS location picker
@@ -125,12 +126,19 @@ src/
 │   ├── map/                   # Leaflet map container with custom pins, popups & jump controls
 │   └── duplicates/            # Side-by-side duplicate candidate card with triage actions
 ├── pages/
+│   ├── LoginPage.tsx          # /login Citizen email authentication
+│   ├── RegisterPage.tsx       # /register Citizen account registration
 │   ├── DashboardPage.tsx      # / Overview
 │   ├── ReportPage.tsx         # /report Form
 │   ├── MapPage.tsx            # /map Interactive Map
 │   ├── ReportsPage.tsx        # /reports Searchable Table
 │   ├── DuplicatesPage.tsx     # /duplicates Triage Queue
-│   └── SettingsPage.tsx       # /settings System Settings
+│   └── SettingsPage.tsx       # /settings System Settings & Citizen Profile
+├── hooks/
+│   └── useAuth.ts             # Custom hook consuming citizen AuthContext
+├── context/
+│   ├── AuthContext.tsx        # Supabase authentication provider & session state
+│   └── ReportContext.tsx      # Reports state management & demo data
 ├── utils/
 │   ├── formatters.ts          # Date, coordinates, and badge helpers
 │   ├── geo.ts                 # Haversine distance & Bengaluru hotspot presets
@@ -146,4 +154,26 @@ src/
 
 - **Phase 1 (Complete):** Modern civic-tech dashboard frontend with deterministic client-side demo data, local storage persistence, responsive UI, Leaflet GIS map with BBMP zones, and duplicate review triage.
 - **Phase 2 (Complete):** Python FastAPI backend with real YOLOv8 object detection inference (`Samdutse/pothole-yolov8`), verified bounding box coordinates, model confidence outputs, annotated image rendering, and robust error handling without synthetic depth hallucination.
-- **Phase 3 (Upcoming):** Supabase integration for multi-user authentication, PostGIS spatial queries, and S3-compatible cloud storage.
+- **Phase 3.1 (Complete):** Supabase Foundation established with official JavaScript (`@supabase/supabase-js`) and Python (`supabase`) SDK clients, database TypeScript models (`public.reports`), storage bucket references (`pothole-originals`, `pothole-annotated`), and secure environment configuration templates.
+- **Phase 3.2 (Complete):** Citizen Authentication implemented across frontend and backend. Includes registration, login, email confirmation flow, persistent session recovery, protected routing, and backend JWT Bearer verification dependency via `client.auth.get_user(token)` with identity derived cryptographically.
+- **Phase 3.3+ (Upcoming):** Supabase Report Persistence, cloud image storage uploads (`pothole-originals`, `pothole-annotated`), and PostGIS spatial clustering.
+
+---
+
+## 🔐 Supabase Configuration Guide (Phase 3.1)
+
+### 1. Frontend Environment (`.env`)
+Create a `.env` file in the project root (see [`.env.example`](file:///c:/Users/sheet/OneDrive/Desktop/Pothole_Reporter/.env.example)):
+```bash
+VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-supabase-publishable-anon-key>
+```
+> **Security Note:** Only supply the public `anon` key to the frontend. Never provide the secret or `service_role` key in frontend code or client environment files.
+
+### 2. Backend Environment (`backend/.env`)
+Create a `.env` file inside the `backend/` directory (see [`backend/.env.example`](file:///c:/Users/sheet/OneDrive/Desktop/Pothole_Reporter/backend/.env.example)):
+```bash
+SUPABASE_URL=https://<your-project-ref>.supabase.co
+SUPABASE_SECRET_KEY=<your-supabase-service-role-secret-key>
+```
+> **Security Note:** The backend secret key possesses administrative service-role privileges and must never be committed to Git. Ensure `backend/.env` remains ignored by version control.

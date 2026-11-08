@@ -39,3 +39,12 @@ class HealthResponse(BaseModel):
     classes: List[str]
     device: str
     version: str = "2.0.0"
+
+
+class AuthenticatedCitizen(BaseModel):
+    user_id: str = Field(..., description="Unique Supabase UUID of the authenticated citizen")
+    email: Optional[str] = Field(None, description="Citizen email address")
+    role: str = Field("authenticated", description="Supabase auth role")
+    app_metadata: dict = Field(default_factory=dict, description="Application metadata from Supabase Auth")
+    user_metadata: dict = Field(default_factory=dict, description="User-supplied metadata (e.g. full name)")
+

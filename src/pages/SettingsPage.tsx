@@ -7,8 +7,11 @@ import {
   Shield,
   Layers,
   MapPin,
+  User,
+  CheckCircle2,
 } from 'lucide-react';
 import { useReports } from '../context/ReportContext';
+import { useAuth } from '../hooks/useAuth';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { exportReportsAsJSON, exportReportsAsGeoJSON } from '../utils/export';
@@ -21,6 +24,7 @@ export const SettingsPage: React.FC = () => {
     loadStressTestData,
     showToast,
   } = useReports();
+  const { user, profile, isConfigured, isDemoUser } = useAuth();
 
   // Settings State
   const [similarityThreshold, setSimilarityThreshold] = useState(85);
@@ -222,6 +226,52 @@ export const SettingsPage: React.FC = () => {
         </CardFooter>
       </Card>
 
+      {/* Citizen Profile & Authentication Info */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <User className="h-5 w-5 text-slate-700" />
+              <CardTitle>Citizen Profile & Authentication</CardTitle>
+            </div>
+            {isConfigured && !isDemoUser ? (
+              <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Supabase Auth Active
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                Demo Session Mode
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-lg border border-slate-200 bg-white">
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Citizen Name</span>
+              <p className="font-bold text-slate-900 mt-0.5">{profile?.fullName || 'Citizen Reporter'}</p>
+              <span className="text-[11px] text-slate-500">Civic Contributor</span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-slate-200 bg-white">
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Account Email</span>
+              <p className="font-bold text-slate-900 mt-0.5 truncate">{user?.email || 'citizen.demo@bengaluru.gov.in'}</p>
+              <span className="text-[11px] text-slate-500">
+                {user?.email_confirmed_at ? 'Email Verified' : (isDemoUser ? 'Local Demo' : 'Pending Verification')}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-slate-200 bg-white">
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Citizen UUID</span>
+              <p className="font-mono text-[11px] font-semibold text-slate-800 mt-0.5 truncate">
+                {user?.id || 'demo-user-id'}
+              </p>
+              <span className="text-[11px] text-slate-500">Supabase Auth ID</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Architecture & Tech Stack Info */}
       <Card>
         <CardHeader>
@@ -276,8 +326,8 @@ export const SettingsPage: React.FC = () => {
               <span className="text-slate-400 text-[10px] uppercase font-bold">
                 Implementation Phase
               </span>
-              <p className="font-bold text-slate-900 mt-0.5">Phase 1: Frontend</p>
-              <span className="text-[11px] text-slate-500">Deterministic Demo Data</span>
+              <p className="font-bold text-slate-900 mt-0.5">Phase 3.2: Citizen Auth</p>
+              <span className="text-[11px] text-slate-500">Supabase JWT + Session Auth</span>
             </div>
           </div>
         </CardContent>
