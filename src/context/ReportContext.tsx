@@ -1,14 +1,22 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useCallback } from 'react';
 import type {
   PotholeReport,
   DuplicatePair,
   ReportStatus,
   ReportPriority,
 } from '../types/report';
-
 import { INITIAL_REPORTS } from '../data/mockReports';
 import { INITIAL_DUPLICATE_PAIRS } from '../data/mockDuplicates';
 import { calculateDistanceMeters } from '../utils/geo';
+import { useAuth } from '../hooks/useAuth';
+import {
+  fetchSupabaseReports,
+  createSupabaseReport,
+  updateSupabaseReportStatus,
+  updateSupabaseReportPriority,
+  deleteSupabaseReport,
+  type CreateReportInput,
+} from '../services/reports';
 
 interface ToastState {
   id: string;
@@ -17,20 +25,23 @@ interface ToastState {
   message?: string;
 }
 
-interface ReportContextType {
+export interface ReportContextType {
   reports: PotholeReport[];
   duplicates: DuplicatePair[];
   toasts: ToastState[];
+  isLoading: boolean;
+  error: string | null;
+  isLiveSync: boolean;
   showToast: (type: ToastState['type'], title: string, message?: string) => void;
   removeToast: (id: string) => void;
+  refreshReports: () => Promise<void>;
   addReport: (
-    reportData: Omit<
-      PotholeReport,
-      'id' | 'createdAt' | 'updatedAt' | 'duplicateCount'
-    >
+    reportData: Omit<PotholeReport, 'id' | 'createdAt' | 'updatedAt' | 'duplicateCount'>
   ) => PotholeReport;
-  updateReportStatus: (id: string, status: ReportStatus) => void;
-  updateReportPriority: (id: string, priority: ReportPriority) => void;
+  createReport: (input: CreateReportInput) => Promise<PotholeReport>;
+  updateReportStatus: (id: string, status: ReportStatus) => Promise<void>;
+  updateReportPriority: (id: string, priority: ReportPriority) => Promise<void>;
+  deleteReport: (id: string) => Promise<void>;
   confirmDuplicate: (pairId: string, notes?: string) => void;
   rejectDuplicate: (pairId: string, notes?: string) => void;
   resetToDefaults: () => void;
@@ -43,9 +54,9 @@ export const ReportContext = createContext<ReportContextType | undefined>(undefi
 const STORAGE_REPORTS_KEY = 'blr_pothole_reports_v1';
 const STORAGE_DUPLICATES_KEY = 'blr_pothole_duplicates_v1';
 
-export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isConfigured, isDemoUser } = useAuth();
+
   const [reports, setReports] = useState<PotholeReport[]>(() => {
     const saved = localStorage.getItem(STORAGE_REPORTS_KEY);
     if (saved) {
@@ -71,39 +82,164 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
   });
 
   const [toasts, setToasts] = useState<ToastState[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLiveSync, setIsLiveSync] = useState<boolean>(false);
 
-  // Persist to localStorage
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const showToast = useCallback(
+    (type: ToastState['type'], title: string, message?: string) => {
+      const id = `${Math.random().toString(36).slice(2, 9)}-${title.slice(0, 5)}`;
+      setToasts((prev) => [...prev, { id, type, title, message }]);
+      setTimeout(() => {
+        removeToast(id);
+      }, 4500);
+    },
+    [removeToast]
+  );
+
+  // Fetch reports from Supabase when authenticated
+  const loadLiveReports = useCallback(
+    async (forceRefresh = false) => {
+      if (!isConfigured || isDemoUser || !user) {
+        setIsLiveSync(false);
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const liveReports = await fetchSupabaseReports(forceRefresh);
+        // Persist real live records. Do NOT fall back to mock reports when Supabase returns an empty list.
+        setReports(liveReports);
+        setIsLiveSync(true);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch reports from Supabase';
+        setError(msg);
+        setIsLiveSync(false);
+        console.warn('[Pothole Reporter] Supabase fetch error, using local state:', msg);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [isConfigured, isDemoUser, user]
+  );
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_REPORTS_KEY, JSON.stringify(reports));
-  }, [reports]);
+    void loadLiveReports(false);
+  }, [loadLiveReports]);
+
+  const refreshReports = useCallback(async () => {
+    await loadLiveReports(true);
+  }, [loadLiveReports]);
+
+  // Persist demo reports to localStorage
+  useEffect(() => {
+    if (!isLiveSync) {
+      localStorage.setItem(STORAGE_REPORTS_KEY, JSON.stringify(reports));
+    }
+  }, [reports, isLiveSync]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_DUPLICATES_KEY, JSON.stringify(duplicates));
   }, [duplicates]);
 
-  const showToast = (
-    type: ToastState['type'],
-    title: string,
-    message?: string
-  ) => {
-    const id = `${Date.now()}-${title.slice(0, 5)}`;
-    setToasts((prev) => [...prev, { id, type, title, message }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 4500);
-  };
-
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
   const getReportById = (id: string) => reports.find((r) => r.id === id);
 
+  /**
+   * Real Supabase Report Creation with Storage Upload & Rollback
+   */
+  const createReport = async (input: CreateReportInput): Promise<PotholeReport> => {
+    if (isConfigured && !isDemoUser && user) {
+      try {
+        const created = await createSupabaseReport(input);
+
+        // Check simulated proximity for duplicate warning
+        const nearbyReport = reports.find((r) => {
+          const dist = calculateDistanceMeters(
+            input.latitude,
+            input.longitude,
+            r.latitude,
+            r.longitude
+          );
+          return dist <= 50;
+        });
+
+        if (nearbyReport) {
+          const distance = calculateDistanceMeters(
+            input.latitude,
+            input.longitude,
+            nearbyReport.latitude,
+            nearbyReport.longitude
+          );
+          const simulatedSimilarity = Math.min(98, Math.max(72, Math.round(100 - distance * 0.5)));
+
+          const newPair: DuplicatePair = {
+            id: `DUP-PAIR-${Math.floor(100 + Math.random() * 900)}`,
+            primaryReportId: nearbyReport.id,
+            incomingReportId: created.id,
+            distanceMeters: distance,
+            simulatedVisualSimilarity: simulatedSimilarity,
+            clusterConfidence: Math.round((simulatedSimilarity + (100 - distance)) / 2),
+            status: 'pending',
+          };
+
+          setDuplicates((prev) => [newPair, ...prev]);
+          showToast(
+            'warning',
+            'Potential Duplicate Flagged',
+            `New submission is within ${distance}m of existing defect ${nearbyReport.id}. Added to review queue.`
+          );
+        } else {
+          showToast(
+            'success',
+            'Report Persisted in Supabase',
+            `Successfully stored in public.reports and images saved to private storage.`
+          );
+        }
+
+        setReports((prev) => [created, ...prev]);
+        return created;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Database submission failed.';
+        showToast('error', 'Report Submission Failed', msg);
+        throw err;
+      }
+    }
+
+    // Fallback for demo session / unconfigured
+    const originalFilePreview =
+      input.originalFile instanceof File
+        ? URL.createObjectURL(input.originalFile)
+        : '/samples/sample1.jpg';
+
+    const fallbackReport = addReport({
+      roadName: input.roadName,
+      zone: input.zone,
+      wardNumber: input.wardNumber,
+      description: input.description,
+      status: 'submitted',
+      priority: input.priority,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      imageUrl: originalFilePreview,
+      reporterName: input.reporterName,
+      reporterContact: input.reporterContact,
+      realAiDetection: input.realAiDetection,
+    });
+
+    return fallbackReport;
+  };
+
+  /**
+   * Legacy / Demo Synchronous Add Report Helper
+   */
   const addReport = (
-    reportData: Omit<
-      PotholeReport,
-      'id' | 'createdAt' | 'updatedAt' | 'duplicateCount'
-    >
+    reportData: Omit<PotholeReport, 'id' | 'createdAt' | 'updatedAt' | 'duplicateCount'>
   ): PotholeReport => {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const newId = `BLR-2026-${randomSuffix}`;
@@ -115,6 +251,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
       createdAt: nowIso,
       updatedAt: nowIso,
       duplicateCount: 0,
+      isLiveRecord: false,
     };
 
     // Duplicate detection simulation: check proximity against existing reports
@@ -125,7 +262,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
         r.latitude,
         r.longitude
       );
-      return dist <= 50; // Within 50 meters
+      return dist <= 50;
     });
 
     if (nearbyReport) {
@@ -135,10 +272,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
         nearbyReport.latitude,
         nearbyReport.longitude
       );
-      const simulatedSimilarity = Math.min(
-        98,
-        Math.max(72, Math.round(100 - distance * 0.5))
-      );
+      const simulatedSimilarity = Math.min(98, Math.max(72, Math.round(100 - distance * 0.5)));
 
       const newPair: DuplicatePair = {
         id: `DUP-PAIR-${Math.floor(100 + Math.random() * 900)}`,
@@ -146,9 +280,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
         incomingReportId: newId,
         distanceMeters: distance,
         simulatedVisualSimilarity: simulatedSimilarity,
-        clusterConfidence: Math.round(
-          (simulatedSimilarity + (100 - distance)) / 2
-        ),
+        clusterConfidence: Math.round((simulatedSimilarity + (100 - distance)) / 2),
         status: 'pending',
       };
 
@@ -170,26 +302,62 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
     return createdReport;
   };
 
-  const updateReportStatus = (id: string, status: ReportStatus) => {
+  const updateReportStatus = async (id: string, status: ReportStatus) => {
+    const target = reports.find((r) => r.id === id);
+
+    // If live Supabase record, update in database
+    if (target?.isLiveRecord && isConfigured && !isDemoUser) {
+      try {
+        await updateSupabaseReportStatus(id, status);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to update status in Supabase';
+        showToast('error', 'Status Update Failed', msg);
+        return;
+      }
+    }
+
     setReports((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? { ...r, status, updatedAt: new Date().toISOString() }
-          : r
-      )
+      prev.map((r) => (r.id === id ? { ...r, status, updatedAt: new Date().toISOString() } : r))
     );
     showToast('info', 'Status Updated', `Report ${id} changed to ${status.replace('_', ' ')}.`);
   };
 
-  const updateReportPriority = (id: string, priority: ReportPriority) => {
+  const updateReportPriority = async (id: string, priority: ReportPriority) => {
+    const target = reports.find((r) => r.id === id);
+
+    // If live Supabase record, update in database
+    if (target?.isLiveRecord && isConfigured && !isDemoUser) {
+      try {
+        await updateSupabaseReportPriority(id, priority);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to update priority in Supabase';
+        showToast('error', 'Priority Update Failed', msg);
+        return;
+      }
+    }
+
     setReports((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? { ...r, priority, updatedAt: new Date().toISOString() }
-          : r
-      )
+      prev.map((r) => (r.id === id ? { ...r, priority, updatedAt: new Date().toISOString() } : r))
     );
     showToast('info', 'Priority Updated', `Report ${id} priority set to ${priority}.`);
+  };
+
+  const deleteReport = async (id: string) => {
+    const target = reports.find((r) => r.id === id);
+    if (!target) return;
+
+    if (target.isLiveRecord && isConfigured && !isDemoUser) {
+      try {
+        await deleteSupabaseReport(target);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to delete report from Supabase';
+        showToast('error', 'Delete Failed', msg);
+        return;
+      }
+    }
+
+    setReports((prev) => prev.filter((r) => r.id !== id));
+    showToast('info', 'Report Deleted', `Report ${id} has been removed.`);
   };
 
   const confirmDuplicate = (pairId: string, notes?: string) => {
@@ -203,26 +371,26 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
               ...d,
               status: 'confirmed',
               reviewedAt: new Date().toISOString(),
-              reviewNotes: notes || 'Verified as duplicate road defect cluster.',
+              reviewNotes: notes || 'Verified duplicate road defect.',
             }
           : d
       )
     );
 
-    // Increment duplicate count on primary, link incoming
     setReports((prev) =>
       prev.map((r) => {
+        if (r.id === pair.incomingReportId) {
+          return {
+            ...r,
+            status: 'rejected',
+            duplicateOfId: pair.primaryReportId,
+            updatedAt: new Date().toISOString(),
+          };
+        }
         if (r.id === pair.primaryReportId) {
           return {
             ...r,
             duplicateCount: (r.duplicateCount || 0) + 1,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-        if (r.id === pair.incomingReportId) {
-          return {
-            ...r,
-            duplicateOfId: pair.primaryReportId,
             updatedAt: new Date().toISOString(),
           };
         }
@@ -232,15 +400,12 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
 
     showToast(
       'success',
-      'Duplicate Confirmed & Linked',
-      `Merged ${pair.incomingReportId} into primary complaint ${pair.primaryReportId}.`
+      'Duplicate Confirmed',
+      `Complaint ${pair.incomingReportId} linked into master report ${pair.primaryReportId}.`
     );
   };
 
   const rejectDuplicate = (pairId: string, notes?: string) => {
-    const pair = duplicates.find((d) => d.id === pairId);
-    if (!pair) return;
-
     setDuplicates((prev) =>
       prev.map((d) =>
         d.id === pairId
@@ -248,17 +413,13 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
               ...d,
               status: 'rejected',
               reviewedAt: new Date().toISOString(),
-              reviewNotes: notes || 'Confirmed as separate defect.',
+              reviewNotes: notes || 'Manually reviewed as unique crater defect.',
             }
           : d
       )
     );
 
-    showToast(
-      'info',
-      'Match Rejected',
-      `Reports ${pair.primaryReportId} and ${pair.incomingReportId} remain distinct independent cases.`
-    );
+    showToast('info', 'Duplicate Rejected', `Marked as independent distinct road defect.`);
   };
 
   const resetToDefaults = () => {
@@ -266,111 +427,65 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
     setDuplicates(INITIAL_DUPLICATE_PAIRS);
     localStorage.removeItem(STORAGE_REPORTS_KEY);
     localStorage.removeItem(STORAGE_DUPLICATES_KEY);
-    showToast('info', 'Demo Reset', 'Reset all reports and duplicate records to default demo state.');
+    showToast('info', 'Demo Dataset Reset', 'Restored 9 original deterministic Bengaluru reports.');
   };
 
   const loadStressTestData = () => {
     const extraReports: PotholeReport[] = [
       {
-        id: 'BLR-2026-0901',
-        roadName: 'Sarjapur Main Road, Near Kaikondrahalli Lake',
-        zone: 'Mahadevapura',
-        wardNumber: 150,
-        description: 'Cavity along the road edge causing bike slowdowns.',
+        id: 'BLR-2026-9041',
+        roadName: 'Bannerghatta Main Rd near Bilekahalli',
+        zone: 'Bommanahalli',
+        wardNumber: 188,
+        description: 'Large fissure near water pipe maintenance opening. Traffic crawling.',
         status: 'submitted',
         priority: 'high',
-        latitude: 12.9123,
-        longitude: 77.6834,
-        imageUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186156f?auto=format&fit=crop&w=800&q=80',
-        reporterName: 'Vikram Seth',
-        reporterContact: '+91 98800 *****',
-        createdAt: '2026-10-21T06:00:00Z',
-        updatedAt: '2026-10-21T06:00:00Z',
+        latitude: 12.8992,
+        longitude: 77.5987,
+        imageUrl:
+          'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=800&q=80',
+        reporterName: 'Sunil Gowda',
+        reporterContact: '+91 98451 *****',
+        createdAt: '2026-10-21T08:30:00Z',
+        updatedAt: '2026-10-21T08:30:00Z',
         simulatedAiDetection: {
           potholeDetected: true,
-          confidenceScore: 91.5,
+          confidenceScore: 94.2,
           estimatedSeverity: 'high',
-          estimatedDepthCm: 10.4,
-          estimatedSurfaceAreaSqM: 0.65,
-          detectedFeatures: ['Edge cavitation'],
+          estimatedDepthCm: 9.5,
+          estimatedSurfaceAreaSqM: 0.95,
+          detectedFeatures: ['High traffic road', 'Exposed sub-base'],
         },
       },
       {
-        id: 'BLR-2026-0902',
-        roadName: 'Old Airport Road, Near Domlur Flyover Ramp',
+        id: 'BLR-2026-9042',
+        roadName: 'Old Madras Road near KR Puram Rly Stn',
         zone: 'East Zone',
-        wardNumber: 72,
-        description: 'Pothole in the rapid bus lane.',
+        wardNumber: 52,
+        description: 'Crater cluster beneath skywalk. Buses swerving sharply towards median.',
         status: 'in_review',
         priority: 'critical',
-        latitude: 12.9612,
-        longitude: 77.6387,
-        imageUrl: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80',
-        reporterName: 'Sunil Rao',
-        reporterContact: '+91 97411 *****',
-        createdAt: '2026-10-20T19:30:00Z',
-        updatedAt: '2026-10-21T08:00:00Z',
+        latitude: 12.9981,
+        longitude: 77.6755,
+        imageUrl:
+          'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=800&q=80',
+        reporterName: 'Meera Iyer',
+        reporterContact: '+91 99002 *****',
+        createdAt: '2026-10-20T14:15:00Z',
+        updatedAt: '2026-10-21T09:00:00Z',
         simulatedAiDetection: {
           potholeDetected: true,
-          confidenceScore: 97.2,
+          confidenceScore: 98.7,
           estimatedSeverity: 'critical',
-          estimatedDepthCm: 15.2,
-          estimatedSurfaceAreaSqM: 0.92,
-          detectedFeatures: ['Severe crater', 'Rapid traffic corridor'],
-        },
-      },
-      {
-        id: 'BLR-2026-0903',
-        roadName: 'Kanakapura Main Road, Near Konanakunte Cross',
-        zone: 'South Zone',
-        wardNumber: 184,
-        description: 'Settled utility trench opening up into small potholes.',
-        status: 'verified',
-        priority: 'medium',
-        latitude: 12.8895,
-        longitude: 77.5684,
-        imageUrl: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=800&q=80',
-        reporterName: 'Meera Nambiar',
-        reporterContact: '+91 98451 *****',
-        createdAt: '2026-10-19T14:10:00Z',
-        updatedAt: '2026-10-20T11:00:00Z',
-        simulatedAiDetection: {
-          potholeDetected: true,
-          confidenceScore: 86.4,
-          estimatedSeverity: 'medium',
-          estimatedDepthCm: 7.8,
-          estimatedSurfaceAreaSqM: 0.44,
-          detectedFeatures: ['Utility cut settlement'],
-        },
-      },
-      {
-        id: 'BLR-2026-0904',
-        roadName: 'Magadi Main Road, Near Tollgate Junction',
-        zone: 'West Zone',
-        wardNumber: 124,
-        description: 'Torn top layer with crumbling bitumen chips.',
-        status: 'scheduled',
-        priority: 'medium',
-        latitude: 12.9734,
-        longitude: 77.5342,
-        imageUrl: 'https://images.unsplash.com/photo-1508873696983-2df5293cb395?auto=format&fit=crop&w=800&q=80',
-        reporterName: 'Girish Patil',
-        reporterContact: '+91 94492 *****',
-        createdAt: '2026-10-18T10:00:00Z',
-        updatedAt: '2026-10-19T17:00:00Z',
-        simulatedAiDetection: {
-          potholeDetected: true,
-          confidenceScore: 82.0,
-          estimatedSeverity: 'medium',
-          estimatedDepthCm: 6.0,
-          estimatedSurfaceAreaSqM: 0.35,
-          detectedFeatures: ['Bitumen disintegration'],
+          estimatedDepthCm: 14.0,
+          estimatedSurfaceAreaSqM: 1.6,
+          detectedFeatures: ['Multiple pothole cluster', 'Severe impact risk'],
         },
       },
     ];
 
     setReports((prev) => [...extraReports, ...prev]);
-    showToast('success', 'Extended Data Loaded', `Added 4 additional ward inspection records.`);
+    showToast('success', 'Extended Data Loaded', `Added additional ward inspection records.`);
   };
 
   return (
@@ -379,11 +494,17 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
         reports,
         duplicates,
         toasts,
+        isLoading,
+        error,
+        isLiveSync,
         showToast,
         removeToast,
+        refreshReports,
         addReport,
+        createReport,
         updateReportStatus,
         updateReportPriority,
+        deleteReport,
         confirmDuplicate,
         rejectDuplicate,
         resetToDefaults,
@@ -397,4 +518,3 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({
 };
 
 export { useReports } from '../hooks/useReports';
-

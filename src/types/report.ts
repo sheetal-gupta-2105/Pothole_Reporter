@@ -71,6 +71,10 @@ export interface PotholeReport {
   realAiDetection?: RealAIDetection;
   duplicateOfId?: string; // If merged into another report
   duplicateCount?: number;
+  userId?: string; // Authenticated citizen Supabase UUID
+  imagePath?: string; // Storage path in pothole-originals
+  annotatedImagePath?: string; // Storage path in pothole-annotated
+  isLiveRecord?: boolean; // Whether the record is persisted in Supabase
 }
 
 export interface DuplicatePair {

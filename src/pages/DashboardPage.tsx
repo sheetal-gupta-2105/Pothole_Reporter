@@ -8,6 +8,7 @@ import {
   ArrowRight,
   PlusCircle,
   MapPin,
+  Database,
 } from 'lucide-react';
 import { useReports } from '../context/ReportContext';
 import { StatCard } from '../components/dashboard/StatCard';
@@ -21,7 +22,7 @@ import type { PotholeReport } from '../types/report';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const { reports, duplicates } = useReports();
+  const { reports, duplicates, isLiveSync } = useReports();
   const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
 
   const totalReports = reports.length;
@@ -44,14 +45,20 @@ export const DashboardPage: React.FC = () => {
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-slate-900 tracking-wide uppercase">
               Bengaluru BBMP
             </span>
-            <span className="text-slate-400 text-xs">Ward Defect Management System</span>
+            {isLiveSync ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <Database className="h-3 w-3" /> Live Supabase Connected
+              </span>
+            ) : (
+              <span className="text-slate-400 text-xs">Ward Defect Management System (Demo)</span>
+            )}
           </div>
           <h1 className="text-xl sm:text-2xl font-black mt-2 tracking-tight">
             Civic Road Defect & Duplicate Intelligence
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
-            Automated citizen complaint ingestion, simulated computer vision severity scoring,
-            and duplicate clustering across Bengaluru arterial roads.
+            Automated citizen complaint ingestion, real YOLOv8 computer vision defect detection,
+            and duplicate-aware reporting across Bengaluru arterial roads.
           </p>
         </div>
 

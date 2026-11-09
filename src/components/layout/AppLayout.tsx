@@ -9,6 +9,8 @@ import {
   Info,
   User,
   LogOut,
+  Database,
+  CheckCircle2,
 } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
@@ -19,7 +21,7 @@ import { useAuth } from '../../hooks/useAuth';
 
 export const AppLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { resetToDefaults, duplicates, showToast } = useReports();
+  const { resetToDefaults, duplicates, showToast, isLiveSync } = useReports();
   const { user, profile, signOut, isDemoUser } = useAuth();
   const location = useLocation();
 
@@ -78,9 +80,15 @@ export const AppLayout: React.FC = () => {
                   Bengaluru Ward Network
                 </span>
                 <span className="h-1 w-1 rounded-full bg-slate-300" />
-                <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                  <ShieldCheck className="h-3 w-3" /> Live Demo Mode
-                </span>
+                {isLiveSync ? (
+                  <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+                    <Database className="h-3 w-3" /> Live Supabase Synced
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-amber-600 font-medium flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3" /> Demo Mode
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -152,16 +160,27 @@ export const AppLayout: React.FC = () => {
           </div>
         </header>
 
-        {/* Civic Demo Notice Banner */}
+        {/* Civic System Status Banner */}
         <div className="bg-slate-100 border-b border-slate-200/80 px-4 sm:px-6 py-1.5 flex items-center justify-between text-[11px] text-slate-600">
           <div className="flex items-center gap-1.5">
-            <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-            <span>
-              <strong>Civic Technology Demo:</strong> All records and AI triage scores are simulated for demonstration.
-            </span>
+            {isLiveSync ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>Live System Active:</strong> Persistent PostgreSQL grievance ledger, private image storage, and real YOLOv8 inference enabled.
+                </span>
+              </>
+            ) : (
+              <>
+                <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                <span>
+                  <strong>Demo Mode Active:</strong> Operating with local deterministic data. Connect Supabase credentials to enable live persistence.
+                </span>
+              </>
+            )}
           </div>
           <span className="hidden sm:inline text-slate-400 font-mono text-[10px]">
-            BBMP Zone Intelligence System
+            BBMP Road Defect System (Student Prototype)
           </span>
         </div>
 

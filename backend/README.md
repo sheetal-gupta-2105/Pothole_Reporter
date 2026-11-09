@@ -138,6 +138,63 @@ Protected citizen authentication endpoint. Cryptographically verifies the Supaba
 
 ---
 
+### `GET /api/reports`
+Retrieves all persistent pothole defect reports from Supabase PostgreSQL (`public.reports`), ordered by newest first.
+
+**Sample Response (HTTP 200):**
+```json
+[
+  {
+    "id": "5bcd45d9-2c05-4276-ad79-112d87dc261b",
+    "user_id": "60bfc6b9-3693-4470-b549-26568c122f30",
+    "title": "Outer Ring Road Bellandur Flyover",
+    "description": "Deep depression in left bus lane",
+    "latitude": 12.9352,
+    "longitude": 77.6823,
+    "address": "Outer Ring Road, Mahadevapura (Ward 150)",
+    "status": "submitted",
+    "priority": "critical",
+    "pothole_count": 2,
+    "image_path": "60bfc6b9-3693-4470-b549-26568c122f30/5bcd45d9-2c05-4276-ad79-112d87dc261b/original.jpg",
+    "annotated_image_path": "60bfc6b9-3693-4470-b549-26568c122f30/5bcd45d9-2c05-4276-ad79-112d87dc261b/annotated.jpg",
+    "created_at": "2026-11-08T12:00:55.979191+00:00",
+    "updated_at": "2026-11-08T12:00:55.979191+00:00"
+  }
+]
+```
+
+---
+
+### `POST /api/reports`
+Protected endpoint to create a report in `public.reports`. Associates the report strictly with the authenticated citizen's user ID derived from their Supabase JWT.
+
+**Headers:**
+- `Authorization: Bearer <supabase_jwt_access_token>`
+
+**Request Body:**
+```json
+{
+  "title": "Outer Ring Road Bellandur Flyover",
+  "description": "Deep depression in left bus lane",
+  "latitude": 12.9352,
+  "longitude": 77.6823,
+  "address": "Outer Ring Road, Mahadevapura (Ward 150)",
+  "priority": "critical",
+  "pothole_count": 2,
+  "image_path": "user-uuid/report-uuid/original.jpg",
+  "annotated_image_path": "user-uuid/report-uuid/annotated.jpg"
+}
+```
+
+**Response (HTTP 201 Created):** Returns the inserted report row.
+
+---
+
+### `DELETE /api/reports/{id}`
+Protected endpoint to delete a report. Enforces citizen ownership: returns `HTTP 403 Forbidden` if another citizen attempts to delete a report they did not file. Deletes the database row and cleans up associated storage objects in `pothole-originals` and `pothole-annotated`.
+
+---
+
 ## ⚡ Supabase Backend Client & Auth Module
 
 The backend includes a reusable Supabase client module in [`app/supabase_client.py`](app/supabase_client.py) and token verification dependency in [`app/auth.py`](app/auth.py).

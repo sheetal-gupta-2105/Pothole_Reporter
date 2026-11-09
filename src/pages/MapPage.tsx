@@ -5,10 +5,10 @@ import { LeafletMap } from '../components/map/LeafletMap';
 import { ReportDrawer } from '../components/reports/ReportDrawer';
 import type { PotholeReport } from '../types/report';
 import { Button } from '../components/common/Button';
-import { PlusCircle, MapPin } from 'lucide-react';
+import { PlusCircle, MapPin, Database } from 'lucide-react';
 
 export const MapPage: React.FC = () => {
-  const { reports } = useReports();
+  const { reports, isLiveSync } = useReports();
   const [searchParams] = useSearchParams();
   const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
 
@@ -29,6 +29,11 @@ export const MapPage: React.FC = () => {
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Spatial Intelligence Map
             </span>
+            {isLiveSync && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
+                <Database className="h-3 w-3 text-emerald-600" /> Supabase Live
+              </span>
+            )}
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-0.5">
             Bengaluru Road Defect GIS Map

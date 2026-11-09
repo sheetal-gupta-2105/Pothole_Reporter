@@ -82,8 +82,13 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                       }}
                     />
                     <div>
-                      <span className="block group-hover:text-amber-600 transition-colors">
-                        {report.id}
+                      <span
+                        className="block group-hover:text-amber-600 transition-colors"
+                        title={report.id}
+                      >
+                        {report.id.length === 36 && report.id.includes('-')
+                          ? `${report.id.slice(0, 8)}...`
+                          : report.id}
                       </span>
                       {report.duplicateCount && report.duplicateCount > 0 ? (
                         <span className="text-[10px] text-orange-600 font-semibold">

@@ -12,12 +12,15 @@ import {
   CheckCircle2,
   Sparkles,
   Eye,
+  Trash2,
+  Database,
 } from 'lucide-react';
 import type { PotholeReport, ReportStatus, ReportPriority } from '../../types/report';
 import { StatusBadge, PriorityBadge, ZoneBadge } from '../common/Badge';
 import { Button } from '../common/Button';
 import { formatDate, formatCoordinates } from '../../utils/formatters';
 import { useReports } from '../../context/ReportContext';
+import { useAuth } from '../../hooks/useAuth';
 
 interface ReportDrawerProps {
   report: PotholeReport | null;
@@ -25,9 +28,11 @@ interface ReportDrawerProps {
 }
 
 export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) => {
-  const { updateReportStatus, updateReportPriority, showToast } = useReports();
+  const { updateReportStatus, updateReportPriority, deleteReport, showToast } = useReports();
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [showAnnotatedDrawer, setShowAnnotatedDrawer] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (!report) return null;
 
@@ -69,6 +74,11 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) =
               </span>
               <StatusBadge status={report.status} size="sm" />
               <PriorityBadge priority={report.priority} size="sm" />
+              {report.isLiveRecord && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                  <Database className="h-3 w-3 text-emerald-600" /> Supabase
+                </span>
+              )}
             </div>
             <h2 className="text-base font-bold text-slate-900 mt-1 line-clamp-1">
               {report.roadName}
@@ -426,7 +436,32 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) =
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end">
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          {user && report.userId && user.id === report.userId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={async () => {
+                if (window.confirm('Are you sure you want to delete this defect report?')) {
+                  setIsDeleting(true);
+                  try {
+                    await deleteReport(report.id);
+                    onClose();
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }
+              }}
+              className="text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
+              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Report'}
+            </Button>
+          ) : (
+            <div />
+          )}
+
           <Button variant="outline" size="sm" onClick={onClose}>
             Close Inspector
           </Button>

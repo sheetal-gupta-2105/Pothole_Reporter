@@ -326,8 +326,8 @@ export const SettingsPage: React.FC = () => {
               <span className="text-slate-400 text-[10px] uppercase font-bold">
                 Implementation Phase
               </span>
-              <p className="font-bold text-slate-900 mt-0.5">Phase 3.2: Citizen Auth</p>
-              <span className="text-[11px] text-slate-500">Supabase JWT + Session Auth</span>
+              <p className="font-bold text-slate-900 mt-0.5">Phase 3.3: Live Persistence</p>
+              <span className="text-[11px] text-slate-500">PostgreSQL + Storage RLS</span>
             </div>
           </div>
         </CardContent>

@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Radio,
   LogOut,
+  Database,
 } from 'lucide-react';
 import { useReports } from '../../context/ReportContext';
 import { useAuth } from '../../hooks/useAuth';
@@ -19,7 +20,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
-  const { reports, duplicates } = useReports();
+  const { reports, duplicates, isLiveSync } = useReports();
   const { user, profile, signOut, isDemoUser } = useAuth();
 
   const pendingDuplicatesCount = duplicates.filter(
@@ -86,10 +87,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
             </p>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50/80 border border-amber-200/60 text-[11px] text-amber-800 font-medium">
-          <Radio className="h-3 w-3 text-amber-600 animate-pulse" />
-          <span>Demo Environment • Phase 1</span>
-        </div>
+        {isLiveSync ? (
+          <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 font-semibold">
+            <Database className="h-3 w-3 text-emerald-600" />
+            <span>Supabase Live • Phase 3.3</span>
+          </div>
+        ) : (
+          <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50/80 border border-amber-200/60 text-[11px] text-amber-800 font-medium">
+            <Radio className="h-3 w-3 text-amber-600 animate-pulse" />
+            <span>Demo Fallback Mode</span>
+          </div>
+        )}
       </div>
 
       {/* Navigation Links */}

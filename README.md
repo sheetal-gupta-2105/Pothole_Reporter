@@ -134,11 +134,17 @@ src/
 │   ├── ReportsPage.tsx        # /reports Searchable Table
 │   ├── DuplicatesPage.tsx     # /duplicates Triage Queue
 │   └── SettingsPage.tsx       # /settings System Settings & Citizen Profile
-├── hooks/
-│   └── useAuth.ts             # Custom hook consuming citizen AuthContext
+├── services/
+│   ├── api.ts                 # YOLOv8 FastAPI detection client
+│   ├── storage.ts             # Private Supabase storage upload, rollback & signed URLs
+│   ├── reports.ts             # Supabase public.reports CRUD & domain model mapping
+│   └── supabase.ts            # Frontend Supabase client initialization
 ├── context/
 │   ├── AuthContext.tsx        # Supabase authentication provider & session state
-│   └── ReportContext.tsx      # Reports state management & demo data
+│   └── ReportContext.tsx      # Reports state management & live persistence
+├── hooks/
+│   ├── useAuth.ts             # Custom hook consuming citizen AuthContext
+│   └── useReports.ts          # Custom hook consuming reports context
 ├── utils/
 │   ├── formatters.ts          # Date, coordinates, and badge helpers
 │   ├── geo.ts                 # Haversine distance & Bengaluru hotspot presets
@@ -156,7 +162,8 @@ src/
 - **Phase 2 (Complete):** Python FastAPI backend with real YOLOv8 object detection inference (`Samdutse/pothole-yolov8`), verified bounding box coordinates, model confidence outputs, annotated image rendering, and robust error handling without synthetic depth hallucination.
 - **Phase 3.1 (Complete):** Supabase Foundation established with official JavaScript (`@supabase/supabase-js`) and Python (`supabase`) SDK clients, database TypeScript models (`public.reports`), storage bucket references (`pothole-originals`, `pothole-annotated`), and secure environment configuration templates.
 - **Phase 3.2 (Complete):** Citizen Authentication implemented across frontend and backend. Includes registration, login, email confirmation flow, persistent session recovery, protected routing, and backend JWT Bearer verification dependency via `client.auth.get_user(token)` with identity derived cryptographically.
-- **Phase 3.3+ (Upcoming):** Supabase Report Persistence, cloud image storage uploads (`pothole-originals`, `pothole-annotated`), and PostGIS spatial clustering.
+- **Phase 3.3 (Complete):** Live Report Persistence & Supabase Storage. Persists citizen reports to Supabase PostgreSQL (`public.reports`), stores original and annotated photographs in private storage buckets (`pothole-originals`, `pothole-annotated`) with user-scoped folders (`{user_id}/{report_id}/...`), handles storage cleanup on insert failure, resolves time-limited signed URLs, and enforces Row Level Security.
+- **Phase 4 (Upcoming):** Duplicate Detection Engine, PostGIS spatial clustering, and smart municipal priority escalation.
 
 ---
 

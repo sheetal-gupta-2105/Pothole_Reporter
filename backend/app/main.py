@@ -1,4 +1,5 @@
 import os
+import uuid
 from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import List
@@ -8,8 +9,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 
 from .detector import PotholeDetector
-from .schemas import DetectionResponse, HealthResponse, AuthenticatedCitizen
+from .schemas import (
+    DetectionResponse,
+    HealthResponse,
+    AuthenticatedCitizen,
+    ReportCreateRequest,
+    ReportUpdateRequest,
+    ReportResponse,
+)
 from .auth import get_current_citizen
+from .supabase_client import (
+    get_supabase_client,
+    is_supabase_configured,
+    TABLE_REPORTS,
+    BUCKET_POTHOLE_ORIGINALS,
+    BUCKET_POTHOLE_ANNOTATED,
+)
 
 # Configuration constants
 MAX_UPLOAD_SIZE_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10")) * 1024 * 1024
@@ -74,6 +89,173 @@ async def get_current_user_profile(
 ):
     """Retrieve verified citizen profile from Supabase JWT token."""
     return citizen
+
+
+@app.get("/api/reports", response_model=List[ReportResponse])
+async def list_reports():
+    """Retrieve all reports from Supabase PostgreSQL (public.reports)."""
+    if not is_supabase_configured():
+        return []
+
+    client = get_supabase_client()
+    try:
+        res = client.table(TABLE_REPORTS).select("*").order("created_at", desc=True).execute()
+        return res.data or []
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch reports from Supabase: {str(exc)}",
+        )
+
+
+@app.post("/api/reports", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
+async def create_report(
+    report_data: ReportCreateRequest,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Create a new report in public.reports associated strictly with the authenticated citizen.
+
+    Derives citizen user_id directly from the verified Supabase JWT token to prevent spoofing.
+    """
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase backend credentials are not configured in backend/.env.",
+        )
+
+    client = get_supabase_client()
+    report_id = str(uuid.uuid4())
+
+    row = {
+        "id": report_id,
+        "user_id": citizen.user_id,
+        "title": report_data.title,
+        "description": report_data.description,
+        "latitude": report_data.latitude,
+        "longitude": report_data.longitude,
+        "address": report_data.address,
+        "status": "submitted",
+        "priority": report_data.priority,
+        "pothole_count": report_data.pothole_count,
+        "ai_detection": report_data.ai_detection or {},
+        "image_path": report_data.image_path,
+        "annotated_image_path": report_data.annotated_image_path,
+    }
+
+    try:
+        res = client.table(TABLE_REPORTS).insert(row).execute()
+        if not res.data or len(res.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to insert report into Supabase database.",
+            )
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database insertion failed: {str(exc)}",
+        )
+
+
+@app.patch("/api/reports/{report_id}", response_model=ReportResponse)
+async def update_report(
+    report_id: str,
+    update_data: ReportUpdateRequest,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Update report status or priority in Supabase."""
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase backend credentials are not configured.",
+        )
+
+    client = get_supabase_client()
+    updates = {}
+    if update_data.status is not None:
+        updates["status"] = update_data.status
+    if update_data.priority is not None:
+        updates["priority"] = update_data.priority
+
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No update fields provided.",
+        )
+
+    try:
+        res = client.table(TABLE_REPORTS).update(updates).eq("id", report_id).execute()
+        if not res.data or len(res.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found.",
+            )
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update report: {str(exc)}",
+        )
+
+
+@app.delete("/api/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report(
+    report_id: str,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Delete a report from Supabase. Enforces citizen ownership (HTTP 403 if not owner)."""
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase backend credentials are not configured.",
+        )
+
+    client = get_supabase_client()
+
+    # 1. Fetch existing report to verify ownership
+    try:
+        existing = client.table(TABLE_REPORTS).select("*").eq("id", report_id).execute()
+        if not existing.data or len(existing.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found.",
+            )
+
+        report_row = existing.data[0]
+        # Verify citizen ownership
+        if report_row.get("user_id") != citizen.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You cannot delete a report filed by another citizen.",
+            )
+
+        # 2. Delete report from database
+        client.table(TABLE_REPORTS).delete().eq("id", report_id).execute()
+
+        # 3. Clean up associated storage objects if present
+        if report_row.get("image_path"):
+            try:
+                client.storage.from_(BUCKET_POTHOLE_ORIGINALS).remove([report_row["image_path"]])
+            except Exception:
+                pass
+        if report_row.get("annotated_image_path"):
+            try:
+                client.storage.from_(BUCKET_POTHOLE_ANNOTATED).remove([report_row["annotated_image_path"]])
+            except Exception:
+                pass
+
+        return None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete report: {str(exc)}",
+        )
 
 
 @app.post("/api/detect", response_model=DetectionResponse)

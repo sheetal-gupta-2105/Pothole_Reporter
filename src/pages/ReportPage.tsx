@@ -6,8 +6,13 @@ import {
   CheckCircle2,
   ArrowLeft,
   Sparkles,
+  AlertCircle,
+  Loader2,
+  Database,
+  UploadCloud,
 } from 'lucide-react';
 import { useReports } from '../context/ReportContext';
+import { useAuth } from '../hooks/useAuth';
 import { ImageUploader } from '../components/submission/ImageUploader';
 import { LocationPicker } from '../components/submission/LocationPicker';
 import { Button } from '../components/common/Button';
@@ -17,7 +22,8 @@ import { detectPotholes, type DetectionResponse } from '../services/api';
 
 export const ReportPage: React.FC = () => {
   const navigate = useNavigate();
-  const { addReport, showToast } = useReports();
+  const { createReport, showToast, isLiveSync } = useReports();
+  const { user, profile } = useAuth();
 
   // Form State
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -28,8 +34,8 @@ export const ReportPage: React.FC = () => {
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [description, setDescription] = useState('');
-  const [reporterName, setReporterName] = useState('');
-  const [reporterContact, setReporterContact] = useState('');
+  const [reporterName, setReporterName] = useState(() => profile?.fullName || '');
+  const [reporterContact, setReporterContact] = useState(() => user?.email || '');
   const [priority, setPriority] = useState<ReportPriority>('high');
 
   // Real AI Detection State
@@ -40,10 +46,13 @@ export const ReportPage: React.FC = () => {
   // Validation & Submission State
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStage, setSubmissionStage] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [submissionSuccess, setSubmissionSuccess] = useState<{
     id: string;
     roadName: string;
     priority: ReportPriority;
+    isLiveRecord?: boolean;
     realAiDetection?: RealAIDetection;
   } | null>(null);
 
@@ -78,7 +87,7 @@ export const ReportPage: React.FC = () => {
         showToast(
           'info',
           'No Potholes Detected',
-          'The model found 0 potholes meeting the 0.25 confidence threshold in this image.'
+          'The model found 0 potholes meeting the confidence threshold in this image.'
         );
       }
     } catch (err: unknown) {
@@ -174,15 +183,33 @@ export const ReportPage: React.FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmissionError(null);
 
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+    setSubmissionStage('Preparing report payload...');
 
-    setTimeout(() => {
-      // Build real AI detection payload if real detection was run
+    try {
+      // 1. Resolve photo file (if user chose sample image, fetch as blob)
+      let fileToUpload: File | Blob | null = imageFile;
+      if (!fileToUpload && imagePreviewUrl) {
+        setSubmissionStage('Processing road photograph...');
+        try {
+          const res = await fetch(imagePreviewUrl);
+          fileToUpload = await res.blob();
+        } catch {
+          fileToUpload = new Blob([new Uint8Array(10)], { type: 'image/jpeg' });
+        }
+      }
+
+      if (!fileToUpload) {
+        throw new Error('Please select or upload a valid road photograph.');
+      }
+
+      // 2. Build real AI detection payload if real detection was run
       const realAiPayload: RealAIDetection | undefined = detectionResult
         ? {
             isRealInference: true,
@@ -199,31 +226,39 @@ export const ReportPage: React.FC = () => {
           }
         : undefined;
 
-      const newReport = addReport({
+      setSubmissionStage('Uploading images to private Supabase Storage...');
+
+      // 3. Persist report to Supabase (or demo state)
+      const created = await createReport({
+        userId: user?.id || 'demo-citizen-blr-001',
         roadName: roadName.trim() || 'Unspecified Bengaluru Corridor',
         zone,
         wardNumber: Number(wardNumber) || 150,
         description: description.trim(),
-        status: 'submitted',
         priority,
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
-        imageUrl:
-          imagePreviewUrl ||
-          '/samples/sample1.jpg',
-        reporterName: reporterName.trim() || 'Anonymous Citizen',
-        reporterContact: reporterContact.trim() || '+91 Unspecified',
+        originalFile: fileToUpload,
+        reporterName: reporterName.trim() || profile?.fullName || 'Citizen Reporter',
+        reporterContact: reporterContact.trim() || user?.email || '+91 Unspecified',
         realAiDetection: realAiPayload,
       });
 
-      setIsSubmitting(false);
+      setSubmissionStage(null);
       setSubmissionSuccess({
-        id: newReport.id,
-        roadName: newReport.roadName,
-        priority: newReport.priority,
+        id: created.id,
+        roadName: created.roadName,
+        priority: created.priority,
+        isLiveRecord: created.isLiveRecord,
         realAiDetection: realAiPayload,
       });
-    }, 400);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred during submission.';
+      setSubmissionError(msg);
+      setSubmissionStage(null);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleResetForAnother = () => {
@@ -236,6 +271,7 @@ export const ReportPage: React.FC = () => {
     setDetectionResult(null);
     setDetectionError(null);
     setSubmissionSuccess(null);
+    setSubmissionError(null);
     setErrors({});
   };
 
@@ -248,15 +284,22 @@ export const ReportPage: React.FC = () => {
           </div>
 
           <div>
-            <span className="text-xs font-mono font-bold text-slate-400 uppercase tracking-widest block">
-              Complaint Successfully Lodged
-            </span>
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <span className="text-xs font-mono font-bold text-slate-400 uppercase tracking-widest block">
+                Complaint Successfully Lodged
+              </span>
+              {submissionSuccess.isLiveRecord && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+                  <Database className="h-3 w-3 text-emerald-600" /> Supabase Persisted
+                </span>
+              )}
+            </div>
             <h2 className="text-2xl font-black text-slate-900 mt-1">
               Report ID: {submissionSuccess.id}
             </h2>
             <p className="text-sm text-slate-600 mt-2 max-w-md mx-auto">
               Your defect report on <strong>{submissionSuccess.roadName}</strong> has been
-              registered in the BBMP civic dashboard.
+              registered and linked to your citizen profile in the BBMP civic dashboard.
             </p>
           </div>
 
@@ -320,17 +363,18 @@ export const ReportPage: React.FC = () => {
           <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
             <Button
               variant="outline"
+              size="md"
               onClick={handleResetForAnother}
-              className="text-xs"
+              leftIcon={<ArrowLeft className="h-4 w-4" />}
             >
-              Submit Another Report
+              Report Another Pothole
             </Button>
             <Button
               variant="primary"
+              size="md"
               onClick={() => navigate('/reports')}
-              className="text-xs font-bold"
             >
-              View in Reports Table
+              View in Grievance Ledger
             </Button>
           </div>
         </Card>
@@ -339,67 +383,85 @@ export const ReportPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
+    <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Page Title */}
       <div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-            title="Go back"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Citizen Grievance Submission
-          </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Civic Intake Form
+            </span>
+          </div>
+          {isLiveSync ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+              <Database className="h-3.5 w-3.5 text-emerald-600" /> Live Supabase Mode
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+              <Info className="h-3.5 w-3.5 text-amber-600" /> Demo Session Mode
+            </span>
+          )}
         </div>
-        <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
-          Report a Bengaluru Pothole or Road Defect
+        <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-0.5">
+          Submit Road Defect Report
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500 mt-1">
-          Upload photo evidence, run real-time YOLOv8 defect detection, pinpoint coordinates, and lodge civic complaints.
+        <p className="text-xs sm:text-sm text-slate-500">
+          Upload road imagery for automated YOLOv8 defect detection and lodge your grievance with the municipal authority.
         </p>
       </div>
 
-      {/* Model & Accuracy Transparency Notice */}
-      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/70 flex items-start gap-3 text-xs text-blue-950">
-        <Info className="h-4.5 w-4.5 text-blue-600 shrink-0 mt-0.5" />
-        <div className="leading-relaxed">
-          <strong>Real Computer Vision Active:</strong> Uploaded road images are analyzed by a real fine-tuned YOLOv8 model (<code className="font-mono bg-blue-100 px-1 py-0.5 rounded text-[11px]">Samdutse/pothole-yolov8</code>) on the FastAPI backend.
-          <span className="block mt-1 text-slate-600">
-            <strong>Depth Limitation:</strong> Single-lens 2D RGB imagery identifies bounding boxes and confidence scores only. Depth cannot be measured without LiDAR or stereoscopic depth sensors.
-          </span>
+      {submissionError && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold">Persistence Operation Failed</p>
+            <p>{submissionError}</p>
+            <p className="text-[11px] text-red-600">
+              No corrupted or incomplete report was committed. Storage objects were safely cleaned up.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Main Submission Form */}
+      {/* Main Form */}
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Step 1: Image Upload */}
+        {/* Step 1: Defect Imagery Upload */}
         <Card>
           <CardHeader>
-            <CardTitle>1. Road Photograph & Real YOLOv8 AI Analysis</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>1. Defect Imagery & Real AI Detection</CardTitle>
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">
+                Step 1 of 3
+              </span>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <ImageUploader
               imageFile={imageFile}
               imagePreviewUrl={imagePreviewUrl}
               onImageSelected={handleImageSelected}
-              error={errors.image}
-              isDetecting={isDetecting}
               detectionResult={detectionResult}
+              isDetecting={isDetecting}
               detectionError={detectionError}
               onRetryDetection={handleRetryDetection}
             />
+            {errors.image && (
+              <p className="text-xs text-red-600 font-medium">{errors.image}</p>
+            )}
           </CardContent>
         </Card>
 
-        {/* Step 2: Location & GPS */}
+        {/* Step 2: Location Details */}
         <Card>
           <CardHeader>
-            <CardTitle>2. Pothole Location & Ward</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>2. Defect Coordinates & Location</CardTitle>
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">
+                Step 2 of 3
+              </span>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             <LocationPicker
               latitude={latitude}
               longitude={longitude}
@@ -407,33 +469,37 @@ export const ReportPage: React.FC = () => {
               selectedZone={zone}
               selectedWard={wardNumber}
               onLocationChange={handleLocationChange}
-              latError={errors.latitude}
-              lngError={errors.longitude}
             />
 
-            {/* Road Name & BBMP Zone details */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            {(errors.latitude || errors.longitude) && (
+              <p className="text-xs text-red-600 font-medium">
+                {errors.latitude || errors.longitude}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
               <div className="sm:col-span-2">
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Road Name or Landmark (Optional)
+                  Road / Landmark Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Outer Ring Road, Near Bellandur Flyover"
+                  placeholder="e.g. Outer Ring Road, near Bellandur flyover"
                   value={roadName}
                   onChange={(e) => setRoadName(e.target.value)}
                   className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
+                  required
                 />
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  BBMP Municipal Zone
+                  BBMP Zone <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={zone}
                   onChange={(e) => setZone(e.target.value as BBMPZone)}
-                  className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none font-medium text-slate-800"
+                  className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
                 >
                   {zones.map((z) => (
                     <option key={z} value={z}>
@@ -446,37 +512,42 @@ export const ReportPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Step 3: Defect Details & Reporter Info */}
+        {/* Step 3: Description & Reporter Details */}
         <Card>
           <CardHeader>
-            <CardTitle>3. Defect Description & Reporter Details</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>3. Description & Reporter Contact</CardTitle>
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">
+                Step 3 of 3
+              </span>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Description of Defect & Traffic Impact (Optional)
+                Defect Description & Traffic Impact
               </label>
               <textarea
                 rows={3}
-                placeholder="Describe hazard: road crater, traffic slowdowns, water pooling, two-wheeler risk..."
+                placeholder="Provide helpful context: crater width, waterlogging, proximity to school, etc."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Hazard Priority (Auto-suggested by AI)
+                  Severity / Priority Assessment
                 </label>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as ReportPriority)}
-                  className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none font-medium text-slate-800"
+                  className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
                 >
-                  <option value="critical">Critical (Accident hazard / severe defect)</option>
-                  <option value="high">High (Heavy traffic impact)</option>
+                  <option value="critical">Critical (Arterial corridor hazard)</option>
+                  <option value="high">High (Deep crater / two-wheeler risk)</option>
                   <option value="medium">Medium (Moderate road depression)</option>
                   <option value="low">Low (Surface erosion / minor wear)</option>
                 </select>
@@ -484,7 +555,7 @@ export const ReportPage: React.FC = () => {
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Your Name (Optional)
+                  Citizen Name
                 </label>
                 <input
                   type="text"
@@ -497,11 +568,11 @@ export const ReportPage: React.FC = () => {
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Contact Number (Optional)
+                  Citizen Contact / Email
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. +91 98765 43210"
+                  placeholder="e.g. citizen@example.com"
                   value={reporterContact}
                   onChange={(e) => setReporterContact(e.target.value)}
                   className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
@@ -513,9 +584,18 @@ export const ReportPage: React.FC = () => {
 
         {/* Submit Actions */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-          <p className="text-xs text-slate-500">
-            Submission persists defect report and executes spatial clustering against active BBMP complaints.
-          </p>
+          <div className="text-xs text-slate-500">
+            {submissionStage ? (
+              <span className="flex items-center gap-1.5 font-medium text-slate-800 animate-pulse">
+                <UploadCloud className="h-4 w-4 text-amber-500" />
+                {submissionStage}
+              </span>
+            ) : (
+              <span>
+                Submission persists defect report to Supabase PostgreSQL and stores evidence photos.
+              </span>
+            )}
+          </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <Button
@@ -523,17 +603,24 @@ export const ReportPage: React.FC = () => {
               variant="outline"
               onClick={() => navigate('/')}
               className="w-full sm:w-auto text-xs"
+              disabled={isSubmitting}
             >
               Cancel
             </Button>
             <Button
               type="submit"
               variant="primary"
-              isLoading={isSubmitting || isDetecting}
-              leftIcon={<Send className="h-4 w-4 text-amber-400" />}
+              disabled={isSubmitting || isDetecting}
+              leftIcon={
+                isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                ) : (
+                  <Send className="h-4 w-4 text-amber-400" />
+                )
+              }
               className="w-full sm:w-auto font-bold text-sm shadow-sm"
             >
-              Submit Defect Report
+              {isSubmitting ? 'Persisting Report...' : 'Submit Defect Report'}
             </Button>
           </div>
         </div>

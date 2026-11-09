@@ -48,3 +48,39 @@ class AuthenticatedCitizen(BaseModel):
     app_metadata: dict = Field(default_factory=dict, description="Application metadata from Supabase Auth")
     user_metadata: dict = Field(default_factory=dict, description="User-supplied metadata (e.g. full name)")
 
+
+class ReportCreateRequest(BaseModel):
+    title: Optional[str] = Field(None, description="Report headline or road name")
+    description: Optional[str] = Field(None, description="Defect details and hazard description")
+    latitude: float = Field(..., ge=-90.0, le=90.0, description="WGS84 latitude coordinate")
+    longitude: float = Field(..., ge=-180.0, le=180.0, description="WGS84 longitude coordinate")
+    address: Optional[str] = Field(None, description="Full road corridor, zone, and ward address")
+    priority: str = Field("medium", description="Hazard priority: critical, high, medium, low")
+    pothole_count: int = Field(0, ge=0, description="Count of detected potholes")
+    ai_detection: Optional[dict] = Field(default_factory=dict, description="AI detection telemetry and bounding boxes")
+    image_path: Optional[str] = Field(None, description="Storage object path in pothole-originals")
+    annotated_image_path: Optional[str] = Field(None, description="Storage object path in pothole-annotated")
+
+
+class ReportUpdateRequest(BaseModel):
+    status: Optional[str] = Field(None, description="New report status: submitted, in_review, verified, scheduled, resolved, rejected")
+    priority: Optional[str] = Field(None, description="New priority: critical, high, medium, low")
+
+
+class ReportResponse(BaseModel):
+    id: str = Field(..., description="Unique report UUID")
+    user_id: str = Field(..., description="Owner citizen UUID from Supabase auth")
+    title: Optional[str] = None
+    description: Optional[str] = None
+    latitude: float
+    longitude: float
+    address: Optional[str] = None
+    status: str
+    priority: str
+    pothole_count: int = 0
+    ai_detection: Optional[dict] = None
+    image_path: Optional[str] = None
+    annotated_image_path: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
