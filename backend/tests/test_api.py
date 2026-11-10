@@ -9,6 +9,23 @@ from app.main import app
 client = TestClient(app)
 
 
+@pytest.mark.parametrize("method", ["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
+def test_cors_allows_api_methods(method):
+    response = client.options(
+        "/api/reports",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": method,
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert method in response.headers["access-control-allow-methods"]
+    assert response.headers["access-control-allow-headers"]
+
+
 def test_health_check():
     """Verify health endpoint returns 200 OK and model metadata."""
     response = client.get("/api/health")

@@ -1,6 +1,7 @@
-import React, { createContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '../lib/supabase';
+import { clearSignedUrlCache } from '../services/storage';
 
 export interface CitizenProfile {
   id: string;
@@ -66,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
   const [loading, setLoading] = useState(() => configured && Boolean(supabase));
+  const authUserIdRef = useRef<string | null>(user?.id ?? null);
 
   // Helper to extract a display-ready CitizenProfile from Supabase User
   const extractProfile = useCallback((u: User | null): CitizenProfile | null => {
@@ -116,12 +118,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      if (!mounted) return;
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
-      setIsDemoUser(false);
-      setLoading(false);
-    });
+  if (!mounted) return;
+
+  const nextUserId = currentSession?.user?.id ?? null;
+
+  // Clear cached private image URLs only when the authenticated
+  // user's identity changes, not during ordinary token refreshes.
+  if (authUserIdRef.current !== nextUserId) {
+    clearSignedUrlCache();
+    authUserIdRef.current = nextUserId;
+  }
+
+  setSession(currentSession);
+  setUser(currentSession?.user ?? null);
+  setIsDemoUser(false);
+  setLoading(false);
+});
 
     return () => {
       mounted = false;
@@ -208,6 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sign Out
   const signOut = useCallback(async () => {
     localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+    clearSignedUrlCache();
     setIsDemoUser(false);
     setUser(null);
     setSession(null);

@@ -84,3 +84,14 @@ class ReportResponse(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+
+class SignedUrlRequest(BaseModel):
+    bucket: str = Field(..., description="Storage bucket: pothole-originals or pothole-annotated")
+    path: str = Field(..., description="Object storage path: {user_id}/{report_id}/...")
+    expires_in: int = Field(3600, ge=60, le=86400, description="Expiration time in seconds")
+
+
+class SignedUrlResponse(BaseModel):
+    signed_url: str = Field(..., description="Authorized time-limited signed URL")
+    expires_in: int = Field(..., description="Expiration duration in seconds")
+

@@ -90,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
         {isLiveSync ? (
           <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 font-semibold">
             <Database className="h-3 w-3 text-emerald-600" />
-            <span>Supabase Live • Phase 3.3</span>
+            <span>Supabase Live • Phase 3.4</span>
           </div>
         ) : (
           <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50/80 border border-amber-200/60 text-[11px] text-amber-800 font-medium">

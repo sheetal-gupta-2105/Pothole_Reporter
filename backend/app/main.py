@@ -2,7 +2,12 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from io import BytesIO
+from pathlib import Path
 from typing import List
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +21,8 @@ from .schemas import (
     ReportCreateRequest,
     ReportUpdateRequest,
     ReportResponse,
+    SignedUrlRequest,
+    SignedUrlResponse,
 )
 from .auth import get_current_citizen
 from .supabase_client import (
@@ -66,7 +73,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -91,9 +98,63 @@ async def get_current_user_profile(
     return citizen
 
 
+def validate_storage_path(path: str, expected_user_id: str) -> None:
+    """Validate that a storage path is safely scoped to the citizen's own folder.
+
+    Requirements:
+    - Path must begin with the exact authenticated user UUID followed by '/'.
+    - Reject leading slashes, empty path segments, '.' and '..' segments.
+    - Reject paths belonging to another user.
+    - Preserve the existing storage folder structure: {user_id}/{report_id}/filename
+    """
+    if not path or not isinstance(path, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Storage path must be a non-empty string.",
+        )
+
+    # Reject leading slashes or backslashes
+    if path.startswith("/") or "\\" in path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed storage path: leading slashes and backslashes are not permitted.",
+        )
+
+    segments = path.split("/")
+    if any(seg in (".", "..") for seg in segments):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed storage path: directory traversal segments ('.' or '..') are strictly prohibited.",
+        )
+
+    if any(not seg.strip() for seg in segments):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed storage path: empty path segments are not permitted.",
+        )
+
+    if len(segments) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed storage path: expected '{user_id}/{report_id}/filename'.",
+        )
+
+    # Enforce strict ownership: the first folder segment must match expected_user_id exactly
+    if segments[0] != expected_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Storage path must reside within your own citizen user folder.",
+        )
+
+
 @app.get("/api/reports", response_model=List[ReportResponse])
-async def list_reports():
-    """Retrieve all reports from Supabase PostgreSQL (public.reports)."""
+async def list_reports(
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Retrieve all reports from Supabase PostgreSQL (public.reports) for authenticated citizens.
+
+    Preserves city-wide metadata visibility across all wards for civic transparency.
+    """
     if not is_supabase_configured():
         return []
 
@@ -105,6 +166,39 @@ async def list_reports():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch reports from Supabase: {str(exc)}",
+        )
+
+
+@app.get("/api/reports/{report_id}", response_model=ReportResponse)
+async def get_report_by_id(
+    report_id: str,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Retrieve metadata for a single report by ID for authenticated citizens.
+
+    Preserves city-wide defect metadata visibility while requiring verified citizen authentication.
+    """
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase backend credentials are not configured.",
+        )
+
+    client = get_supabase_client()
+    try:
+        res = client.table(TABLE_REPORTS).select("*").eq("id", report_id).execute()
+        if not res.data or len(res.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found.",
+            )
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch report: {str(exc)}",
         )
 
 
@@ -122,6 +216,12 @@ async def create_report(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Supabase backend credentials are not configured in backend/.env.",
         )
+
+    # Validate storage paths to prevent traversal and ownership spoofing
+    if report_data.image_path:
+        validate_storage_path(report_data.image_path, citizen.user_id)
+    if report_data.annotated_image_path:
+        validate_storage_path(report_data.annotated_image_path, citizen.user_id)
 
     client = get_supabase_client()
     report_id = str(uuid.uuid4())
@@ -165,7 +265,7 @@ async def update_report(
     update_data: ReportUpdateRequest,
     citizen: AuthenticatedCitizen = Depends(get_current_citizen),
 ):
-    """Update report status or priority in Supabase."""
+    """Update report status or priority in Supabase. Enforces citizen ownership."""
     if not is_supabase_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -186,6 +286,21 @@ async def update_report(
         )
 
     try:
+        # Verify citizen ownership: cannot modify another citizen's report
+        existing = client.table(TABLE_REPORTS).select("*").eq("id", report_id).execute()
+        if not existing.data or len(existing.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found.",
+            )
+
+        report_row = existing.data[0]
+        if report_row.get("user_id") != citizen.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You cannot modify a report filed by another citizen.",
+            )
+
         res = client.table(TABLE_REPORTS).update(updates).eq("id", report_id).execute()
         if not res.data or len(res.data) == 0:
             raise HTTPException(
@@ -255,6 +370,53 @@ async def delete_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete report: {str(exc)}",
+        )
+
+
+@app.post("/api/storage/signed-url", response_model=SignedUrlResponse)
+async def create_signed_image_url(
+    req: SignedUrlRequest,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Generate time-limited signed URL for an image. Enforces citizen folder ownership."""
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase backend credentials are not configured.",
+        )
+
+    # Validate allowed buckets
+    if req.bucket not in [BUCKET_POTHOLE_ORIGINALS, BUCKET_POTHOLE_ANNOTATED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid storage bucket '{req.bucket}'. Allowed buckets: {BUCKET_POTHOLE_ORIGINALS}, {BUCKET_POTHOLE_ANNOTATED}",
+        )
+
+    # Validate path format, reject traversal/leading slashes, and enforce folder ownership
+    validate_storage_path(req.path, citizen.user_id)
+
+    client = get_supabase_client()
+    try:
+        res = client.storage.from_(req.bucket).create_signed_url(req.path, req.expires_in)
+        signed_url = None
+        if isinstance(res, dict):
+            signed_url = res.get("signedURL") or res.get("signedUrl")
+        elif hasattr(res, "signed_url"):
+            signed_url = res.signed_url
+
+        if not signed_url:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Failed to generate signed URL. Object may not exist in storage.",
+            )
+
+        return SignedUrlResponse(signed_url=signed_url, expires_in=req.expires_in)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Storage service failed to generate signed URL: {str(exc)}",
         )
 
 

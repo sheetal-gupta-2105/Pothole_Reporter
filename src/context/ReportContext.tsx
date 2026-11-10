@@ -1,4 +1,11 @@
-import React, { createContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import type {
   PotholeReport,
   DuplicatePair,
@@ -9,6 +16,7 @@ import { INITIAL_REPORTS } from '../data/mockReports';
 import { INITIAL_DUPLICATE_PAIRS } from '../data/mockDuplicates';
 import { calculateDistanceMeters } from '../utils/geo';
 import { useAuth } from '../hooks/useAuth';
+import { clearSignedUrlCache } from '../services/storage';
 import {
   fetchSupabaseReports,
   createSupabaseReport,
@@ -56,8 +64,16 @@ const STORAGE_DUPLICATES_KEY = 'blr_pothole_duplicates_v1';
 
 export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isConfigured, isDemoUser } = useAuth();
+  const currentIdentity = isDemoUser ? 'demo' : user?.id ?? null;
+  const activeIdentityRef = useRef<string | null>(currentIdentity);
+  const reportRequestIdRef = useRef(0);
+  const identityGenerationRef = useRef(0);
 
   const [reports, setReports] = useState<PotholeReport[]>(() => {
+    if (user && !isDemoUser) {
+      return [];
+    }
+
     const saved = localStorage.getItem(STORAGE_REPORTS_KEY);
     if (saved) {
       try {
@@ -70,6 +86,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   const [duplicates, setDuplicates] = useState<DuplicatePair[]>(() => {
+    if (!isDemoUser) {
+      return INITIAL_DUPLICATE_PAIRS;
+    }
+
     const saved = localStorage.getItem(STORAGE_DUPLICATES_KEY);
     if (saved) {
       try {
@@ -85,6 +105,52 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isLiveSync, setIsLiveSync] = useState<boolean>(false);
+
+  useLayoutEffect(() => {
+    if (activeIdentityRef.current === currentIdentity) {
+      return () => {
+        reportRequestIdRef.current += 1;
+      };
+    }
+
+    activeIdentityRef.current = currentIdentity;
+    identityGenerationRef.current += 1;
+    reportRequestIdRef.current += 1;
+    clearSignedUrlCache();
+    setIsLiveSync(false);
+    setIsLoading(false);
+    setError(null);
+
+    if (currentIdentity === 'demo') {
+      const savedReports = localStorage.getItem(STORAGE_REPORTS_KEY);
+      const savedDuplicates = localStorage.getItem(STORAGE_DUPLICATES_KEY);
+
+      try {
+        setReports(savedReports ? JSON.parse(savedReports) : INITIAL_REPORTS);
+      } catch {
+        setReports(INITIAL_REPORTS);
+      }
+
+      try {
+        setDuplicates(savedDuplicates ? JSON.parse(savedDuplicates) : INITIAL_DUPLICATE_PAIRS);
+      } catch {
+        setDuplicates(INITIAL_DUPLICATE_PAIRS);
+      }
+    } else if (currentIdentity === null) {
+      setReports(INITIAL_REPORTS);
+      setDuplicates(INITIAL_DUPLICATE_PAIRS);
+    } else {
+      setReports([]);
+      setDuplicates(INITIAL_DUPLICATE_PAIRS);
+    }
+
+    return () => {
+      reportRequestIdRef.current += 1;
+    };
+  }, [currentIdentity]);
+
+  const isIdentityCurrent = (identity: string | null, generation: number) =>
+    activeIdentityRef.current === identity && identityGenerationRef.current === generation;
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -106,24 +172,53 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     async (forceRefresh = false) => {
       if (!isConfigured || isDemoUser || !user) {
         setIsLiveSync(false);
+        setIsLoading(false);
+
+        if (!user && !isDemoUser) {
+          clearSignedUrlCache();
+          setReports(INITIAL_REPORTS);
+        }
         return;
       }
+
+      const requestId = ++reportRequestIdRef.current;
+      const requestedUserId = user.id;
 
       setIsLoading(true);
       setError(null);
 
       try {
         const liveReports = await fetchSupabaseReports(forceRefresh);
-        // Persist real live records. Do NOT fall back to mock reports when Supabase returns an empty list.
+
+        if (
+          requestId !== reportRequestIdRef.current ||
+          activeIdentityRef.current !== requestedUserId
+        ) {
+          return;
+        }
+
         setReports(liveReports);
         setIsLiveSync(true);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to fetch reports from Supabase';
+        if (
+          requestId !== reportRequestIdRef.current ||
+          activeIdentityRef.current !== requestedUserId
+        ) {
+          return;
+        }
+
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Failed to fetch reports from Supabase';
+
         setError(msg);
         setIsLiveSync(false);
-        console.warn('[Pothole Reporter] Supabase fetch error, using local state:', msg);
+        console.warn('[Pothole Reporter] Supabase fetch error:', msg);
       } finally {
-        setIsLoading(false);
+        if (requestId === reportRequestIdRef.current) {
+          setIsLoading(false);
+        }
       }
     },
     [isConfigured, isDemoUser, user]
@@ -137,16 +232,18 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await loadLiveReports(true);
   }, [loadLiveReports]);
 
-  // Persist demo reports to localStorage
+  // Persist demo reports to localStorage only when in demo mode
   useEffect(() => {
-    if (!isLiveSync) {
+    if (!isLiveSync && isDemoUser) {
       localStorage.setItem(STORAGE_REPORTS_KEY, JSON.stringify(reports));
     }
-  }, [reports, isLiveSync]);
+  }, [reports, isLiveSync, isDemoUser]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_DUPLICATES_KEY, JSON.stringify(duplicates));
-  }, [duplicates]);
+    if (isDemoUser) {
+      localStorage.setItem(STORAGE_DUPLICATES_KEY, JSON.stringify(duplicates));
+    }
+  }, [duplicates, isDemoUser]);
 
   const getReportById = (id: string) => reports.find((r) => r.id === id);
 
@@ -154,9 +251,16 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * Real Supabase Report Creation with Storage Upload & Rollback
    */
   const createReport = async (input: CreateReportInput): Promise<PotholeReport> => {
+    const initiatingIdentity = currentIdentity;
+    const initiatingGeneration = identityGenerationRef.current;
+
     if (isConfigured && !isDemoUser && user) {
       try {
         const created = await createSupabaseReport(input);
+
+        if (!isIdentityCurrent(initiatingIdentity, initiatingGeneration)) {
+          return created;
+        }
 
         // Check simulated proximity for duplicate warning
         const nearbyReport = reports.find((r) => {
@@ -206,7 +310,9 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return created;
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Database submission failed.';
-        showToast('error', 'Report Submission Failed', msg);
+        if (isIdentityCurrent(initiatingIdentity, initiatingGeneration)) {
+          showToast('error', 'Report Submission Failed', msg);
+        }
         throw err;
       }
     }
@@ -303,18 +409,33 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const updateReportStatus = async (id: string, status: ReportStatus) => {
+    const initiatingIdentity = currentIdentity;
+    const initiatingGeneration = identityGenerationRef.current;
     const target = reports.find((r) => r.id === id);
 
-    // If live Supabase record, update in database
+    // If live Supabase record, enforce citizen ownership and update in database
     if (target?.isLiveRecord && isConfigured && !isDemoUser) {
+      if (user && target.userId && user.id !== target.userId) {
+        showToast(
+          'error',
+          'Unauthorized Modification',
+          'You can only modify defect reports submitted by your own account.'
+        );
+        return;
+      }
+
       try {
         await updateSupabaseReportStatus(id, status);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to update status in Supabase';
-        showToast('error', 'Status Update Failed', msg);
+        if (isIdentityCurrent(initiatingIdentity, initiatingGeneration)) {
+          showToast('error', 'Status Update Failed', msg);
+        }
         return;
       }
     }
+
+    if (!isIdentityCurrent(initiatingIdentity, initiatingGeneration)) return;
 
     setReports((prev) =>
       prev.map((r) => (r.id === id ? { ...r, status, updatedAt: new Date().toISOString() } : r))
@@ -323,18 +444,33 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const updateReportPriority = async (id: string, priority: ReportPriority) => {
+    const initiatingIdentity = currentIdentity;
+    const initiatingGeneration = identityGenerationRef.current;
     const target = reports.find((r) => r.id === id);
 
-    // If live Supabase record, update in database
+    // If live Supabase record, enforce citizen ownership and update in database
     if (target?.isLiveRecord && isConfigured && !isDemoUser) {
+      if (user && target.userId && user.id !== target.userId) {
+        showToast(
+          'error',
+          'Unauthorized Modification',
+          'You can only modify defect reports submitted by your own account.'
+        );
+        return;
+      }
+
       try {
         await updateSupabaseReportPriority(id, priority);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to update priority in Supabase';
-        showToast('error', 'Priority Update Failed', msg);
+        if (isIdentityCurrent(initiatingIdentity, initiatingGeneration)) {
+          showToast('error', 'Priority Update Failed', msg);
+        }
         return;
       }
     }
+
+    if (!isIdentityCurrent(initiatingIdentity, initiatingGeneration)) return;
 
     setReports((prev) =>
       prev.map((r) => (r.id === id ? { ...r, priority, updatedAt: new Date().toISOString() } : r))
@@ -343,18 +479,33 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const deleteReport = async (id: string) => {
+    const initiatingIdentity = currentIdentity;
+    const initiatingGeneration = identityGenerationRef.current;
     const target = reports.find((r) => r.id === id);
     if (!target) return;
 
     if (target.isLiveRecord && isConfigured && !isDemoUser) {
+      if (user && target.userId && user.id !== target.userId) {
+        showToast(
+          'error',
+          'Unauthorized Deletion',
+          'You cannot delete a defect report filed by another citizen.'
+        );
+        return;
+      }
+
       try {
         await deleteSupabaseReport(target);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to delete report from Supabase';
-        showToast('error', 'Delete Failed', msg);
+        if (isIdentityCurrent(initiatingIdentity, initiatingGeneration)) {
+          showToast('error', 'Delete Failed', msg);
+        }
         return;
       }
     }
+
+    if (!isIdentityCurrent(initiatingIdentity, initiatingGeneration)) return;
 
     setReports((prev) => prev.filter((r) => r.id !== id));
     showToast('info', 'Report Deleted', `Report ${id} has been removed.`);

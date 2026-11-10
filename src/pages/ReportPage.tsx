@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Send,
@@ -23,7 +23,10 @@ import { detectPotholes, type DetectionResponse } from '../services/api';
 export const ReportPage: React.FC = () => {
   const navigate = useNavigate();
   const { createReport, showToast, isLiveSync } = useReports();
-  const { user, profile } = useAuth();
+  const { user, profile, isDemoUser } = useAuth();
+  const currentIdentity = isDemoUser ? 'demo' : user?.id ?? null;
+  const activeSubmissionIdentityRef = useRef<string | null>(currentIdentity);
+  const submissionIdentityGenerationRef = useRef(0);
 
   // Form State
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -55,6 +58,17 @@ export const ReportPage: React.FC = () => {
     isLiveRecord?: boolean;
     realAiDetection?: RealAIDetection;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    if (activeSubmissionIdentityRef.current === currentIdentity) return;
+
+    activeSubmissionIdentityRef.current = currentIdentity;
+    submissionIdentityGenerationRef.current += 1;
+    setIsSubmitting(false);
+    setSubmissionStage(null);
+    setSubmissionError(null);
+    setSubmissionSuccess(null);
+  }, [currentIdentity]);
 
   const zones: BBMPZone[] = [
     'Mahadevapura',
@@ -185,6 +199,12 @@ export const ReportPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const initiatingIdentity = currentIdentity;
+    const initiatingGeneration = submissionIdentityGenerationRef.current;
+    const isSubmissionCurrent = () =>
+      activeSubmissionIdentityRef.current === initiatingIdentity &&
+      submissionIdentityGenerationRef.current === initiatingGeneration;
+
     setSubmissionError(null);
 
     if (!validateForm()) return;
@@ -204,6 +224,8 @@ export const ReportPage: React.FC = () => {
           fileToUpload = new Blob([new Uint8Array(10)], { type: 'image/jpeg' });
         }
       }
+
+      if (!isSubmissionCurrent()) return;
 
       if (!fileToUpload) {
         throw new Error('Please select or upload a valid road photograph.');
@@ -244,6 +266,8 @@ export const ReportPage: React.FC = () => {
         realAiDetection: realAiPayload,
       });
 
+      if (!isSubmissionCurrent()) return;
+
       setSubmissionStage(null);
       setSubmissionSuccess({
         id: created.id,
@@ -253,11 +277,15 @@ export const ReportPage: React.FC = () => {
         realAiDetection: realAiPayload,
       });
     } catch (err: unknown) {
+      if (!isSubmissionCurrent()) return;
+
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred during submission.';
       setSubmissionError(msg);
       setSubmissionStage(null);
     } finally {
-      setIsSubmitting(false);
+      if (isSubmissionCurrent()) {
+        setIsSubmitting(false);
+      }
     }
   };
 

@@ -1,4 +1,4 @@
-import { supabase, SUPABASE_TABLES } from '../lib/supabase';
+import { getSupabaseClient, supabase, SUPABASE_TABLES } from '../lib/supabase';
 import type { DatabaseReportRow, DatabaseReportInsert } from '../types/database';
 import type {
   PotholeReport,
@@ -13,6 +13,52 @@ import {
   rollbackUploadedImages,
   getReportSignedUrls,
 } from './storage';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+async function mutateReport(reportId: string, payload?: { status?: ReportStatus; priority?: ReportPriority }): Promise<void> {
+  const client = getSupabaseClient();
+  const { data, error } = await client.auth.getSession();
+  if (error) throw new Error(`Unable to retrieve your authentication session: ${error.message}`);
+
+  const accessToken = data.session?.access_token;
+  if (!accessToken) throw new Error('You must be signed in to update or delete a report. Please sign in again.');
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/reports/${encodeURIComponent(reportId)}`, {
+      method: payload ? 'PATCH' : 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        Accept: 'application/json',
+      },
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('Unable to connect to the report service. Please check your connection and try again.');
+    }
+    throw error;
+  }
+
+  if (response.ok) return;
+
+  let detail = '';
+  try {
+    const body = await response.json();
+    detail = typeof body?.detail === 'string' ? body.detail : '';
+  } catch {
+    // Some errors may not include a JSON response body.
+  }
+  const messages: Record<number, string> = {
+    401: 'Your session is invalid or expired. Please sign in again.',
+    403: 'You do not have permission to modify this report.',
+    404: 'This report could not be found. It may have already been removed.',
+  };
+  const message = messages[response.status] || `Report service request failed (HTTP ${response.status}).`;
+  throw new Error(detail ? `${message} ${detail}` : message);
+}
 
 /**
  * Maps a PostgreSQL reports table row to the frontend domain PotholeReport model.
@@ -76,7 +122,9 @@ export function mapDbRowToPotholeReport(
     priority: normalizedPriority,
     latitude: row.latitude,
     longitude: row.longitude,
-    imageUrl: signedUrls?.originalUrl || row.image_path || '/samples/sample1.jpg',
+    imageUrl:
+      signedUrls?.originalUrl ||
+      (row.image_path?.startsWith('http') ? row.image_path : '/samples/sample1.jpg'),
     reporterName,
     reporterContact,
     createdAt: row.created_at,
@@ -219,70 +267,28 @@ export async function fetchSupabaseReports(forceRefresh = false): Promise<Pothol
 }
 
 /**
- * Updates a report's status in Supabase.
+ * Updates a report's status through the authenticated backend.
  */
 export async function updateSupabaseReportStatus(
   reportId: string,
   newStatus: ReportStatus
 ): Promise<void> {
-  if (!supabase) {
-    throw new Error('Supabase client is not configured.');
-  }
-
-  const { error } = await supabase
-    .from(SUPABASE_TABLES.REPORTS)
-    .update({
-      status: newStatus,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', reportId);
-
-  if (error) {
-    throw new Error(`Failed to update report status: ${error.message}`);
-  }
+  await mutateReport(reportId, { status: newStatus });
 }
 
 /**
- * Updates a report's priority in Supabase.
+ * Updates a report's priority through the authenticated backend.
  */
 export async function updateSupabaseReportPriority(
   reportId: string,
   newPriority: ReportPriority
 ): Promise<void> {
-  if (!supabase) {
-    throw new Error('Supabase client is not configured.');
-  }
-
-  const { error } = await supabase
-    .from(SUPABASE_TABLES.REPORTS)
-    .update({
-      priority: newPriority,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', reportId);
-
-  if (error) {
-    throw new Error(`Failed to update report priority: ${error.message}`);
-  }
+  await mutateReport(reportId, { priority: newPriority });
 }
 
 /**
- * Deletes a report from public.reports and removes its storage objects.
+ * Deletes a report through the authenticated backend, which also cleans up its storage objects.
  */
 export async function deleteSupabaseReport(report: PotholeReport): Promise<void> {
-  if (!supabase) {
-    throw new Error('Supabase client is not configured.');
-  }
-
-  const { error } = await supabase.from(SUPABASE_TABLES.REPORTS).delete().eq('id', report.id);
-
-  if (error) {
-    throw new Error(`Failed to delete report: ${error.message}`);
-  }
-
-  // Also remove associated storage objects
-  await rollbackUploadedImages({
-    originalPath: report.imagePath,
-    annotatedPath: report.annotatedImagePath,
-  });
+  await mutateReport(report.id);
 }
