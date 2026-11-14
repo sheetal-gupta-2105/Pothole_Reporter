@@ -92,7 +92,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [duplicates, setDuplicates] = useState<DuplicatePair[]>(() => {
     if (!isDemoUser) {
-      return INITIAL_DUPLICATE_PAIRS;
+      return [];
     }
 
     const saved = localStorage.getItem(STORAGE_DUPLICATES_KEY);
@@ -146,7 +146,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setDuplicates(INITIAL_DUPLICATE_PAIRS);
     } else {
       setReports([]);
-      setDuplicates(INITIAL_DUPLICATE_PAIRS);
+      setDuplicates([]);
     }
 
     return () => {
@@ -210,8 +210,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const liveDuplicates = await fetchDuplicateCandidates();
           if (
             requestId === reportRequestIdRef.current &&
-            activeIdentityRef.current === requestedUserId &&
-            liveDuplicates.length > 0
+            activeIdentityRef.current === requestedUserId
           ) {
             setDuplicates(liveDuplicates);
           }
