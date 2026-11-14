@@ -25,6 +25,11 @@ import {
   deleteSupabaseReport,
   type CreateReportInput,
 } from '../services/reports';
+import {
+  fetchDuplicateCandidates,
+  reviewDuplicateCandidate,
+  triggerReportDuplicateCheck,
+} from '../services/duplicates';
 
 interface ToastState {
   id: string;
@@ -50,8 +55,8 @@ export interface ReportContextType {
   updateReportStatus: (id: string, status: ReportStatus) => Promise<void>;
   updateReportPriority: (id: string, priority: ReportPriority) => Promise<void>;
   deleteReport: (id: string) => Promise<void>;
-  confirmDuplicate: (pairId: string, notes?: string) => void;
-  rejectDuplicate: (pairId: string, notes?: string) => void;
+  confirmDuplicate: (pairId: string, notes?: string) => Promise<void> | void;
+  rejectDuplicate: (pairId: string, notes?: string) => Promise<void> | void;
   resetToDefaults: () => void;
   loadStressTestData: () => void;
   getReportById: (id: string) => PotholeReport | undefined;
@@ -199,6 +204,20 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         setReports(liveReports);
         setIsLiveSync(true);
+
+        // Fetch persisted duplicate candidates from backend service
+        try {
+          const liveDuplicates = await fetchDuplicateCandidates();
+          if (
+            requestId === reportRequestIdRef.current &&
+            activeIdentityRef.current === requestedUserId &&
+            liveDuplicates.length > 0
+          ) {
+            setDuplicates(liveDuplicates);
+          }
+        } catch (dupErr) {
+          console.debug('[Pothole Reporter] Live duplicate candidates fetch notice:', dupErr);
+        }
       } catch (err) {
         if (
           requestId !== reportRequestIdRef.current ||
@@ -262,48 +281,73 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           return created;
         }
 
-        // Check simulated proximity for duplicate warning
-        const nearbyReport = reports.find((r) => {
-          const dist = calculateDistanceMeters(
-            input.latitude,
-            input.longitude,
-            r.latitude,
-            r.longitude
-          );
-          return dist <= 50;
-        });
+        // Trigger backend spatial and perceptual duplicate check
+        let duplicateFound = false;
+        try {
+          const liveCandidates = await triggerReportDuplicateCheck(created.id);
+          if (liveCandidates && liveCandidates.length > 0) {
+            duplicateFound = true;
+            setDuplicates((prev) => {
+              const existingIds = new Set(prev.map((p) => p.id));
+              const newUniques = liveCandidates.filter((c) => !existingIds.has(c.id));
+              return [...newUniques, ...prev];
+            });
+            showToast(
+              'warning',
+              'Potential Duplicate Flagged',
+              `AI duplicate engine identified ${liveCandidates.length} candidate match(es) within 50m. Added to review queue.`
+            );
+          }
+        } catch (checkErr) {
+          console.debug('[Pothole Reporter] Automatic duplicate scan notice:', checkErr);
+        }
 
-        if (nearbyReport) {
-          const distance = calculateDistanceMeters(
-            input.latitude,
-            input.longitude,
-            nearbyReport.latitude,
-            nearbyReport.longitude
-          );
-          const simulatedSimilarity = Math.min(98, Math.max(72, Math.round(100 - distance * 0.5)));
+        if (!duplicateFound) {
+          // Proximity fallback check
+          const nearbyReport = reports.find((r) => {
+            const dist = calculateDistanceMeters(
+              input.latitude,
+              input.longitude,
+              r.latitude,
+              r.longitude
+            );
+            return dist <= 50;
+          });
 
-          const newPair: DuplicatePair = {
-            id: `DUP-PAIR-${Math.floor(100 + Math.random() * 900)}`,
-            primaryReportId: nearbyReport.id,
-            incomingReportId: created.id,
-            distanceMeters: distance,
-            simulatedVisualSimilarity: simulatedSimilarity,
-            clusterConfidence: Math.round((simulatedSimilarity + (100 - distance)) / 2),
-            status: 'pending',
-          };
+          if (nearbyReport) {
+            const distance = calculateDistanceMeters(
+              input.latitude,
+              input.longitude,
+              nearbyReport.latitude,
+              nearbyReport.longitude
+            );
+            const simulatedSimilarity = Math.min(98, Math.max(72, Math.round(100 - distance * 0.5)));
 
-          setDuplicates((prev) => [newPair, ...prev]);
-          showToast(
-            'warning',
-            'Potential Duplicate Flagged',
-            `New submission is within ${distance}m of existing defect ${nearbyReport.id}. Added to review queue.`
-          );
-        } else {
-          showToast(
-            'success',
-            'Report Persisted in Supabase',
-            `Successfully stored in public.reports and images saved to private storage.`
-          );
+            const newPair: DuplicatePair = {
+              id: `DUP-PAIR-${Math.floor(100 + Math.random() * 900)}`,
+              primaryReportId: nearbyReport.id,
+              incomingReportId: created.id,
+              distanceMeters: distance,
+              simulatedVisualSimilarity: simulatedSimilarity,
+              clusterConfidence: Math.round((simulatedSimilarity + (100 - distance)) / 2),
+              status: 'pending',
+              classification: simulatedSimilarity >= 85 ? 'strong_duplicate' : 'possible_duplicate',
+              reason: `Spatial proximity (${distance}m within 50m threshold).`,
+            };
+
+            setDuplicates((prev) => [newPair, ...prev]);
+            showToast(
+              'warning',
+              'Potential Duplicate Flagged',
+              `New submission is within ${distance}m of existing defect ${nearbyReport.id}. Added to review queue.`
+            );
+          } else {
+            showToast(
+              'success',
+              'Report Persisted in Supabase',
+              `Successfully stored in public.reports and images saved to private storage.`
+            );
+          }
         }
 
         setReports((prev) => [created, ...prev]);
@@ -511,9 +555,30 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showToast('info', 'Report Deleted', `Report ${id} has been removed.`);
   };
 
-  const confirmDuplicate = (pairId: string, notes?: string) => {
+  const confirmDuplicate = async (pairId: string, notes?: string) => {
     const pair = duplicates.find((d) => d.id === pairId);
     if (!pair) return;
+
+    // Check authorization for live records
+    if (pair.isLiveRecord && isConfigured && !isDemoUser && user) {
+      const isOwner = user.id === pair.primaryReportUserId || user.id === pair.incomingReportUserId;
+      if (!isOwner) {
+        showToast(
+          'error',
+          'Unauthorized Review Action',
+          'Only the citizen who submitted either report (or an administrator) can confirm this duplicate match.'
+        );
+        return;
+      }
+
+      try {
+        await reviewDuplicateCandidate(pairId, 'confirmed', notes);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to confirm duplicate';
+        showToast('error', 'Review Failed', msg);
+        return;
+      }
+    }
 
     setDuplicates((prev) =>
       prev.map((d) =>
@@ -556,7 +621,31 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   };
 
-  const rejectDuplicate = (pairId: string, notes?: string) => {
+  const rejectDuplicate = async (pairId: string, notes?: string) => {
+    const pair = duplicates.find((d) => d.id === pairId);
+    if (!pair) return;
+
+    // Check authorization for live records
+    if (pair.isLiveRecord && isConfigured && !isDemoUser && user) {
+      const isOwner = user.id === pair.primaryReportUserId || user.id === pair.incomingReportUserId;
+      if (!isOwner) {
+        showToast(
+          'error',
+          'Unauthorized Review Action',
+          'Only the citizen who submitted either report (or an administrator) can reject this duplicate match.'
+        );
+        return;
+      }
+
+      try {
+        await reviewDuplicateCandidate(pairId, 'rejected', notes);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to reject duplicate';
+        showToast('error', 'Review Failed', msg);
+        return;
+      }
+    }
+
     setDuplicates((prev) =>
       prev.map((d) =>
         d.id === pairId

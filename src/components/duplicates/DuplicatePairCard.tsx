@@ -6,12 +6,15 @@ import {
   Calendar,
   Sparkles,
   User,
+  ShieldAlert,
+  Binary,
 } from 'lucide-react';
 import type { DuplicatePair, PotholeReport } from '../../types/report';
 import { Card, CardHeader, CardContent, CardFooter } from '../common/Card';
 import { Button } from '../common/Button';
 import { PriorityBadge } from '../common/Badge';
 import { formatDate } from '../../utils/formatters';
+import { useAuth } from '../../hooks/useAuth';
 
 interface DuplicatePairCardProps {
   pair: DuplicatePair;
@@ -30,7 +33,12 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
   onReject,
   onInspectReport,
 }) => {
+  const { user } = useAuth();
 
+  // Citizen ownership check: only reporter of primary or incoming ticket can review live records
+  const isOwner =
+    !pair.isLiveRecord ||
+    (user && (user.id === pair.primaryReportUserId || user.id === pair.incomingReportUserId));
 
   if (!primaryReport || !incomingReport) {
     return (
@@ -66,6 +74,23 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {pair.classification && (
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                pair.classification === 'strong_duplicate'
+                  ? 'bg-purple-100 text-purple-900 border-purple-300'
+                  : 'bg-amber-100 text-amber-900 border-amber-300'
+              }`}
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>
+                {pair.classification === 'strong_duplicate'
+                  ? 'Strong Duplicate Match'
+                  : 'Possible Candidate'}
+              </span>
+            </span>
+          )}
+
           {pair.status === 'confirmed' ? (
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
               <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
@@ -78,7 +103,7 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
-              <span>Pending Human Verification</span>
+              <span>Pending Verification</span>
             </span>
           )}
         </div>
@@ -93,9 +118,9 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
             </div>
             <div>
               <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block">
-                Simulated Match Metrics
+                Geographic & Perceptual Hash Metrics
               </span>
-              <div className="flex items-center gap-4 text-xs font-semibold">
+              <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
                 <span>
                   Physical Proximity:{' '}
                   <strong className="text-amber-400 font-mono">
@@ -103,11 +128,17 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
                   </strong>
                 </span>
                 <span>
-                  Visual Feature Similarity:{' '}
+                  Visual Similarity:{' '}
                   <strong className="text-amber-400 font-mono">
                     {pair.simulatedVisualSimilarity.toFixed(1)}%
                   </strong>
                 </span>
+                {pair.hammingDistance !== undefined && (
+                  <span className="flex items-center gap-1 text-slate-300 font-mono text-[11px]">
+                    <Binary className="h-3.5 w-3.5 text-indigo-400" />
+                    Hamming: <strong className="text-indigo-300">{pair.hammingDistance}/64 bits</strong>
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -121,6 +152,14 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Explainability Callout */}
+        {pair.reason && (
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700 flex items-start gap-2">
+            <span className="font-semibold text-slate-900 shrink-0">Detection Analysis:</span>
+            <span>{pair.reason}</span>
+          </div>
+        )}
 
         {/* Side-by-Side Comparison Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -242,32 +281,39 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
       {!isReviewed && (
         <CardFooter className="flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="text-xs text-slate-500">
-            <span>
-              Action will cluster tickets to prevent duplicate contractor dispatches.
-            </span>
+            {isOwner ? (
+              <span>Action will cluster tickets to prevent duplicate contractor dispatches.</span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-amber-800 font-medium bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
+                <ShieldAlert className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                View only: Only the citizen who submitted either report can confirm or reject this match.
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onReject(pair.id, 'Distinct road defect')}
-              leftIcon={<XCircle className="h-4 w-4 text-slate-500" />}
-              className="text-xs"
-            >
-              Reject Match
-            </Button>
+          {isOwner && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onReject(pair.id, 'Distinct road defect')}
+                leftIcon={<XCircle className="h-4 w-4 text-slate-500" />}
+                className="text-xs"
+              >
+                Reject Match
+              </Button>
 
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => onConfirm(pair.id, 'Verified duplicate road complaint')}
-              leftIcon={<GitMerge className="h-4 w-4 text-amber-400" />}
-              className="text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800"
-            >
-              Confirm Duplicate & Merge
-            </Button>
-          </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onConfirm(pair.id, 'Verified duplicate road complaint')}
+                leftIcon={<GitMerge className="h-4 w-4 text-amber-400" />}
+                className="text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Confirm Duplicate & Merge
+              </Button>
+            </div>
+          )}
         </CardFooter>
       )}
     </Card>

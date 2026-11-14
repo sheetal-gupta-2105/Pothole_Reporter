@@ -85,8 +85,15 @@ export interface DuplicatePair {
   simulatedVisualSimilarity: number; // 0 - 100 (%)
   clusterConfidence: number; // 0 - 100 (%)
   status: 'pending' | 'confirmed' | 'rejected';
+  classification?: 'strong_duplicate' | 'possible_duplicate';
+  reason?: string;
+  hammingDistance?: number;
   reviewedAt?: string;
   reviewNotes?: string;
+  reviewedBy?: string;
+  isLiveRecord?: boolean;
+  primaryReportUserId?: string;
+  incomingReportUserId?: string;
 }
 
 export interface FilterOptions {

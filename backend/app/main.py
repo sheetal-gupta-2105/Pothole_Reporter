@@ -1,9 +1,10 @@
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from dotenv import load_dotenv
 
@@ -23,6 +24,9 @@ from .schemas import (
     ReportResponse,
     SignedUrlRequest,
     SignedUrlResponse,
+    DuplicateCandidateResponse,
+    DuplicateReviewRequest,
+    DuplicateScanResponse,
 )
 from .auth import get_current_citizen
 from .supabase_client import (
@@ -32,6 +36,13 @@ from .supabase_client import (
     BUCKET_POTHOLE_ORIGINALS,
     BUCKET_POTHOLE_ANNOTATED,
 )
+from .duplicate_service import (
+    scan_for_duplicates,
+    list_duplicate_candidates,
+    review_duplicate_candidate,
+)
+
+logger = logging.getLogger("pothole_reporter.api")
 
 # Configuration constants
 MAX_UPLOAD_SIZE_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10")) * 1024 * 1024
@@ -96,6 +107,15 @@ async def get_current_user_profile(
 ):
     """Retrieve verified citizen profile from Supabase JWT token."""
     return citizen
+
+
+def is_admin_citizen(citizen: AuthenticatedCitizen) -> bool:
+    """Check if citizen possesses administrative privileges derived from trusted sources.
+
+    Strictly checks the Supabase auth role or server-controlled app_metadata.
+    Never trusts client-editable user_metadata.
+    """
+    return citizen.role == "admin" or citizen.app_metadata.get("role") == "admin"
 
 
 def validate_storage_path(path: str, expected_user_id: str) -> None:
@@ -249,13 +269,22 @@ async def create_report(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to insert report into Supabase database.",
             )
-        return res.data[0]
+        created_report = res.data[0]
+
+        # Trigger duplicate detection without failing report persistence
+        try:
+            scan_for_duplicates(report_id)
+        except Exception as scan_err:
+            logger.warning("Duplicate detection scan failed for report %s: %s", report_id, scan_err)
+
+        return created_report
     except HTTPException:
         raise
     except Exception as exc:
+        logger.error("Database insertion failed for report: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database insertion failed: {str(exc)}",
+            detail="Database insertion failed.",
         )
 
 
@@ -417,6 +446,106 @@ async def create_signed_image_url(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Storage service failed to generate signed URL: {str(exc)}",
+        )
+
+
+@app.post("/api/reports/{report_id}/check-duplicates", response_model=DuplicateScanResponse)
+async def trigger_duplicate_detection(
+    report_id: str,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Trigger spatial and perceptual duplicate detection for an existing report.
+
+    Enforces ownership authorization: only the citizen who filed the report or an
+    administrator with trusted app_metadata may initiate a duplicate scan.
+    """
+    if not is_supabase_configured():
+        return DuplicateScanResponse(report_id=report_id, candidates_found=0, candidates=[])
+
+    client = get_supabase_client()
+    try:
+        # 1. Fetch target report using backend service-role client
+        existing = client.table(TABLE_REPORTS).select("*").eq("id", report_id).execute()
+        if not existing.data or len(existing.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found.",
+            )
+
+        report_row = existing.data[0]
+
+        # 2. Enforce report ownership or trusted admin privileges
+        if not is_admin_citizen(citizen) and report_row.get("user_id") != citizen.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only check for duplicates on reports that you submitted.",
+            )
+
+        result = scan_for_duplicates(report_id)
+        return DuplicateScanResponse(
+            report_id=result["report_id"],
+            candidates_found=result["candidates_found"],
+            candidates=result["candidates"],
+            phash=result.get("phash"),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error("Duplicate detection scan failed for report %s: %s", report_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to complete duplicate detection scan.",
+        )
+
+
+@app.get("/api/duplicates", response_model=List[DuplicateCandidateResponse])
+async def list_duplicates(
+    status: Optional[str] = None,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """List duplicate candidate pairs across Bengaluru with joined report metadata."""
+    try:
+        candidates = list_duplicate_candidates(status_filter=status)
+        return candidates
+    except Exception as exc:
+        logger.error("Failed to list duplicate candidates: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve duplicate candidate records.",
+        )
+
+
+@app.patch("/api/duplicates/{candidate_id}", response_model=DuplicateCandidateResponse)
+async def triage_duplicate_candidate(
+    candidate_id: str,
+    review_data: DuplicateReviewRequest,
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Triage duplicate candidate (confirm or reject).
+
+    Enforces citizen authorization: user must own primary or incoming report, or be an admin.
+    """
+    is_admin = is_admin_citizen(citizen)
+    try:
+        updated = review_duplicate_candidate(
+            candidate_id=candidate_id,
+            new_status=review_data.status,
+            reviewer_user_id=citizen.user_id,
+            review_notes=review_data.review_notes,
+            is_admin=is_admin,
+        )
+        return updated
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to review duplicate candidate %s: %s", candidate_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update duplicate candidate review status.",
         )
 
 

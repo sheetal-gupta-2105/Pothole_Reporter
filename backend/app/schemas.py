@@ -81,6 +81,7 @@ class ReportResponse(BaseModel):
     ai_detection: Optional[dict] = None
     image_path: Optional[str] = None
     annotated_image_path: Optional[str] = None
+    phash: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -94,4 +95,32 @@ class SignedUrlRequest(BaseModel):
 class SignedUrlResponse(BaseModel):
     signed_url: str = Field(..., description="Authorized time-limited signed URL")
     expires_in: int = Field(..., description="Expiration duration in seconds")
+
+
+class DuplicateCandidateResponse(BaseModel):
+    id: str = Field(..., description="Unique duplicate candidate UUID")
+    primary_report_id: str = Field(..., description="Existing earlier report UUID")
+    incoming_report_id: str = Field(..., description="Incoming candidate report UUID")
+    distance_meters: float = Field(..., description="Haversine distance in meters")
+    hamming_distance: Optional[int] = Field(None, description="pHash Hamming bit distance (0-64)")
+    similarity_pct: Optional[float] = Field(None, description="Visual similarity percentage (0-100%)")
+    classification: str = Field(..., description="Classification: strong_duplicate or possible_duplicate")
+    reason: str = Field(..., description="Human-readable explanation of duplicate match")
+    status: str = Field("pending", description="Review triage status: pending, confirmed, or rejected")
+    reviewed_at: Optional[str] = Field(None, description="Timestamp of review")
+    created_at: Optional[str] = Field(None, description="Timestamp candidate was identified")
+    primary_report: Optional[ReportResponse] = None
+    incoming_report: Optional[ReportResponse] = None
+
+
+class DuplicateReviewRequest(BaseModel):
+    status: str = Field(..., description="Triage status: confirmed or rejected")
+    review_notes: Optional[str] = Field(None, description="Reason or notes for confirmation/rejection")
+
+
+class DuplicateScanResponse(BaseModel):
+    report_id: str
+    candidates_found: int
+    candidates: List[DuplicateCandidateResponse] = Field(default_factory=list)
+    phash: Optional[str] = None
 

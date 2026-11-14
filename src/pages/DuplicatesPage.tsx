@@ -5,6 +5,7 @@ import {
   XCircle,
   Clock,
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { useReports } from '../context/ReportContext';
 import { DuplicatePairCard } from '../components/duplicates/DuplicatePairCard';
@@ -13,7 +14,7 @@ import type { PotholeReport } from '../types/report';
 import { EmptyState } from '../components/common/EmptyState';
 
 export const DuplicatesPage: React.FC = () => {
-  const { duplicates, confirmDuplicate, rejectDuplicate, getReportById } =
+  const { duplicates, confirmDuplicate, rejectDuplicate, getReportById, isLoading } =
     useReports();
   const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
   const [tab, setTab] = useState<'pending' | 'confirmed' | 'rejected' | 'all'>(
@@ -46,17 +47,17 @@ export const DuplicatesPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Simulated AI & Duplicate clustering explanation callout */}
+      {/* Phase 4 AI & Duplicate clustering explanation callout */}
       <div className="p-4 rounded-xl border border-orange-200 bg-orange-50/60 flex items-start gap-3 text-xs text-orange-900">
         <Sparkles className="h-4.5 w-4.5 text-orange-600 shrink-0 mt-0.5" />
         <div className="space-y-1">
           <p className="font-semibold text-orange-950">
-            Duplicate Clustering Engine (Simulated Demo Algorithm):
+            Phase 4 Civic Deduplication Engine (Haversine Spatial & pHash Visual Analysis):
           </p>
           <p className="leading-relaxed text-slate-700">
-            Incoming complaints within a 50-meter radius undergo simulated visual embedding
-            comparison. Confirming merges the secondary ticket to avoid redundant contractor
-            dispatches. Rejecting verifies the defects as distinct road issues.
+            Incoming complaints within a 50-meter radius undergo Discrete Cosine Transform (DCT)
+            perceptual image hashing and Hamming distance evaluation. Confirming links the duplicate ticket
+            to prevent redundant contractor dispatches. Rejecting verifies the complaints as distinct defect sites.
           </p>
         </div>
       </div>
@@ -141,7 +142,19 @@ export const DuplicatesPage: React.FC = () => {
       </div>
 
       {/* Duplicate Pairs List */}
-      {filteredDuplicates.length === 0 ? (
+      {isLoading && duplicates.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center flex flex-col items-center justify-center space-y-3 shadow-xs">
+          <Loader2 className="h-8 w-8 text-amber-500 animate-spin" />
+          <div className="space-y-1">
+            <p className="text-xs font-bold text-slate-800">
+              Scanning duplicate review queue...
+            </p>
+            <p className="text-[11px] text-slate-500 max-w-sm">
+              Analyzing spatial proximity and perceptual image hashes from Supabase.
+            </p>
+          </div>
+        </div>
+      ) : filteredDuplicates.length === 0 ? (
         <EmptyState
           icon={GitMerge}
           title={

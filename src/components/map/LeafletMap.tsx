@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import L from 'leaflet';
-import type { PotholeReport, ReportPriority, ReportStatus } from '../../types/report';
+import type { PotholeReport, ReportPriority, ReportStatus, DuplicatePair } from '../../types/report';
 import { BENGALURU_CENTER, BENGALURU_HOTSPOTS } from '../../utils/geo';
 import { Filter, Layers, Navigation } from 'lucide-react';
 import { Button } from '../common/Button';
@@ -15,6 +15,7 @@ L.Icon.Default.mergeOptions({
 
 interface LeafletMapProps {
   reports: PotholeReport[];
+  duplicates?: DuplicatePair[];
   onSelectReport: (report: PotholeReport) => void;
   selectedCoordinates?: { lat: number; lng: number } | null;
   className?: string;
@@ -22,6 +23,7 @@ interface LeafletMapProps {
 
 export const LeafletMap: React.FC<LeafletMapProps> = ({
   reports,
+  duplicates = [],
   onSelectReport,
   selectedCoordinates,
   className = '',
@@ -29,9 +31,23 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const radiusCircleRef = useRef<L.Circle | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<'all' | ReportStatus>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReportPriority>('all');
+  const [duplicateFilter, setDuplicateFilter] = useState<'all' | 'duplicates_only' | 'unique_only'>('all');
+
+  // Identify reports involved in pending duplicate pairs
+  const duplicateReportIds = useMemo(() => {
+    const ids = new Set<string>();
+    duplicates.forEach((d) => {
+      if (d.status === 'pending') {
+        ids.add(d.primaryReportId);
+        ids.add(d.incomingReportId);
+      }
+    });
+    return ids;
+  }, [duplicates]);
 
   // Initialize Map
   useEffect(() => {
@@ -63,14 +79,32 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   }, []);
 
-  // Center on coordinates if passed as prop
+  // Center on coordinates and display 50m candidate radius circle if passed as prop
   useEffect(() => {
-    if (mapInstanceRef.current && selectedCoordinates) {
-      mapInstanceRef.current.setView(
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (radiusCircleRef.current) {
+      radiusCircleRef.current.remove();
+      radiusCircleRef.current = null;
+    }
+
+    if (selectedCoordinates) {
+      map.setView(
         [selectedCoordinates.lat, selectedCoordinates.lng],
         16,
         { animate: true }
       );
+
+      // Render 50m geographic search boundary circle
+      radiusCircleRef.current = L.circle([selectedCoordinates.lat, selectedCoordinates.lng], {
+        radius: 50,
+        color: '#f59e0b',
+        fillColor: '#fbbf24',
+        fillOpacity: 0.18,
+        weight: 2,
+        dashArray: '5, 5',
+      }).addTo(map);
     }
   }, [selectedCoordinates]);
 
@@ -88,6 +122,11 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       if (isNaN(r.latitude) || isNaN(r.longitude)) return false;
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (priorityFilter !== 'all' && r.priority !== priorityFilter) return false;
+
+      const isDuplicate = duplicateReportIds.has(r.id) || (Boolean(r.duplicateCount) && (r.duplicateCount ?? 0) > 0);
+      if (duplicateFilter === 'duplicates_only' && !isDuplicate) return false;
+      if (duplicateFilter === 'unique_only' && isDuplicate) return false;
+
       return true;
     });
 
@@ -107,15 +146,26 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       };
 
       const pinColor = getPinColor(report.priority);
+      const isFlaggedDuplicate = duplicateReportIds.has(report.id);
 
       const customIcon = L.divIcon({
         className: 'custom-pothole-pin',
         html: `
           <div style="position: relative; cursor: pointer; transform: translate(-50%, -100%);">
             <svg width="32" height="38" viewBox="0 0 32 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+              ${
+                isFlaggedDuplicate
+                  ? `<circle cx="16" cy="16" r="15" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="4,2"/>`
+                  : ''
+              }
               <path d="M16 0C7.16344 0 0 7.16344 0 16C0 26 16 38 16 38C16 38 32 26 32 16C32 7.16344 24.8366 0 16 0Z" fill="${pinColor}" stroke="#ffffff" stroke-width="2"/>
               <circle cx="16" cy="16" r="6" fill="#ffffff"/>
             </svg>
+            ${
+              isFlaggedDuplicate
+                ? `<span style="position: absolute; top: -8px; left: -6px; background: #f59e0b; color: white; font-size: 8px; font-weight: bold; border-radius: 9999px; padding: 1px 4px; border: 1.5px solid white;">DUP</span>`
+                : ''
+            }
             ${
               report.duplicateCount && report.duplicateCount > 0
                 ? `<span style="position: absolute; top: -6px; right: -6px; background: #ea580c; color: white; font-size: 10px; font-weight: bold; border-radius: 9999px; padding: 1px 5px; border: 1.5px solid white;">+${report.duplicateCount}</span>`
@@ -140,6 +190,11 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         <div style="margin-bottom: 8px; border-radius: 6px; overflow: hidden; height: 95px; background: #0f172a;">
           <img src="${report.imageUrl}" alt="${report.roadName}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=400&q=80'" />
         </div>
+        ${
+          isFlaggedDuplicate
+            ? `<div style="margin-bottom: 6px; padding: 3px 6px; border-radius: 4px; background: #fffbeb; border: 1px solid #fde68a; color: #b45309; font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 4px;">⚠ Flagged in Duplicate Review Queue</div>`
+            : ''
+        }
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
           <span style="font-family: monospace; font-size: 11px; font-weight: bold; color: #475569;">${report.id}</span>
           <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; background: ${
@@ -164,7 +219,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       marker.bindPopup(popupHtml);
       marker.addTo(markersGroup);
     });
-  }, [reports, statusFilter, priorityFilter, onSelectReport]);
+  }, [reports, statusFilter, priorityFilter, duplicateFilter, duplicateReportIds, onSelectReport]);
 
   const validCount = reports.filter(
     (r) =>
@@ -224,11 +279,24 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             <option value="low">Low Only</option>
           </select>
 
-          {(statusFilter !== 'all' || priorityFilter !== 'all') && (
+          <select
+            value={duplicateFilter}
+            onChange={(e) =>
+              setDuplicateFilter(e.target.value as 'all' | 'duplicates_only' | 'unique_only')
+            }
+            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2.5 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+          >
+            <option value="all">All Complaints</option>
+            <option value="duplicates_only">Flagged Duplicates Only</option>
+            <option value="unique_only">Unique Defects Only</option>
+          </select>
+
+          {(statusFilter !== 'all' || priorityFilter !== 'all' || duplicateFilter !== 'all') && (
             <button
               onClick={() => {
                 setStatusFilter('all');
                 setPriorityFilter('all');
+                setDuplicateFilter('all');
               }}
               className="text-xs text-rose-600 hover:text-rose-700 font-medium underline ml-1"
             >

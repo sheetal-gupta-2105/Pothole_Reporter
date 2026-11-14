@@ -8,7 +8,7 @@ import { Button } from '../components/common/Button';
 import { PlusCircle, MapPin, Database } from 'lucide-react';
 
 export const MapPage: React.FC = () => {
-  const { reports, isLiveSync } = useReports();
+  const { reports, duplicates, isLiveSync } = useReports();
   const [searchParams] = useSearchParams();
   const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
 
@@ -74,6 +74,7 @@ export const MapPage: React.FC = () => {
       {/* Full-width Map Container */}
       <LeafletMap
         reports={reports}
+        duplicates={duplicates}
         onSelectReport={(report) => setSelectedReport(report)}
         selectedCoordinates={selectedCoordinates}
         className="h-[calc(100vh-230px)] min-h-[550px] shadow-sm"

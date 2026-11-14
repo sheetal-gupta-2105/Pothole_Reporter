@@ -21,6 +21,7 @@ logger = logging.getLogger("pothole_reporter.supabase")
 BUCKET_POTHOLE_ORIGINALS = "pothole-originals"
 BUCKET_POTHOLE_ANNOTATED = "pothole-annotated"
 TABLE_REPORTS = "reports"
+TABLE_DUPLICATE_CANDIDATES = "duplicate_candidates"
 
 _supabase_client_instance: Optional[Client] = None
 _client_credentials: Optional[Tuple[str, str]] = None
