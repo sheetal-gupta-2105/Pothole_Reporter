@@ -88,16 +88,22 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
   };
 
   const handleSelectHotspot = (hotspot: (typeof BENGALURU_HOTSPOTS)[0]) => {
+    const hasCustomCoords = Boolean(latitude.trim() || longitude.trim());
+    const nextLat = hasCustomCoords ? latitude : hotspot.lat.toFixed(6);
+    const nextLng = hasCustomCoords ? longitude : hotspot.lng.toFixed(6);
+
     onLocationChange(
-      hotspot.lat.toFixed(6),
-      hotspot.lng.toFixed(6),
+      nextLat,
+      nextLng,
       hotspot.name,
       hotspot.zone,
       hotspot.wardNumber
     );
     setGeoStatus({
       type: 'success',
-      message: `Selected preset: ${hotspot.name}`,
+      message: hasCustomCoords
+        ? `Selected preset: ${hotspot.name} (preserved custom coordinates)`
+        : `Selected preset: ${hotspot.name}`,
     });
   };
 
@@ -165,7 +171,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
             <input
               type="number"
               step="any"
-              placeholder="e.g. 12.930400"
+              placeholder="e.g. 12.971600"
               value={latitude}
               onChange={(e) => onLocationChange(e.target.value, longitude)}
               className="w-full text-xs sm:text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
@@ -189,7 +195,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
             <input
               type="number"
               step="any"
-              placeholder="e.g. 77.678400"
+              placeholder="e.g. 77.594600"
               value={longitude}
               onChange={(e) => onLocationChange(latitude, e.target.value)}
               className="w-full text-xs sm:text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-slate-900 focus:bg-white focus:outline-none"
