@@ -128,10 +128,8 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
                   </strong>
                 </span>
                 <span>
-                  Visual Similarity:{' '}
-                  <strong className="text-amber-400 font-mono">
-                    {pair.simulatedVisualSimilarity.toFixed(1)}%
-                  </strong>
+                  {pair.simulatedVisualSimilarity === null ? 'Visual verification unavailable' : <>Visual Similarity:{' '}
+                    <strong className="text-amber-400 font-mono">{pair.simulatedVisualSimilarity.toFixed(1)}%</strong></>}
                 </span>
                 {pair.hammingDistance !== undefined && (
                   <span className="flex items-center gap-1 text-slate-300 font-mono text-[11px]">
@@ -143,14 +141,14 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
             </div>
           </div>
 
-          <div className="text-right">
+          {pair.clusterConfidence !== undefined && <div className="text-right">
             <span className="text-[10px] text-slate-400 block font-mono">
               Cluster Confidence
             </span>
             <span className="text-base font-extrabold text-emerald-400 font-mono">
               {pair.clusterConfidence.toFixed(1)}%
             </span>
-          </div>
+          </div>}
         </div>
 
         {/* Explainability Callout */}

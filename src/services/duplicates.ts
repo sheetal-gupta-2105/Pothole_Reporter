@@ -30,8 +30,8 @@ export interface ApiDuplicateCandidate {
 }
 
 function mapApiCandidateToDuplicatePair(c: ApiDuplicateCandidate): DuplicatePair {
-  const sim = c.similarity_pct ?? (c.hamming_distance !== null ? Math.max(0, (64 - c.hamming_distance) / 64 * 100) : 75.0);
-  const clusterConf = Math.round((sim + Math.max(0, 100 - c.distance_meters)) / 2);
+  const sim = c.similarity_pct ?? (c.hamming_distance !== null ? Math.max(0, (64 - c.hamming_distance) / 64 * 100) : null);
+  const clusterConf = sim === null ? undefined : Math.round((sim + Math.max(0, 100 - c.distance_meters)) / 2);
 
   return {
     id: c.id,

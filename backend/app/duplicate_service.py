@@ -260,10 +260,6 @@ def scan_for_duplicates(
             dist_meters, hamming_dist, radius_meters=candidate_radius
         )
 
-        # Do not persist non-duplicates
-        if classification == "not_duplicate":
-            continue
-
         # Canonical ordering: earlier report is primary
         primary_rep, incoming_rep = get_canonical_pair(target_report, cand_report)
         primary_id = primary_rep["id"]
@@ -282,6 +278,63 @@ def scan_for_duplicates(
 
         if existing_res.data and len(existing_res.data) > 0:
             existing_row = existing_res.data[0]
+            if existing_row.get("status") == "pending":
+                if classification == "not_duplicate":
+                    try:
+                        updated_res = (
+                            client.table(TABLE_DUPLICATE_CANDIDATES)
+                            .delete()
+                            .eq("id", existing_row["id"])
+                            .eq("status", "pending")
+                            .execute()
+                        )
+                        if updated_res.data:
+                            continue
+                        # A concurrent review may have changed status; re-read persisted state.
+                        current_res = client.table(TABLE_DUPLICATE_CANDIDATES).select("*").eq(
+                            "id", existing_row["id"]
+                        ).execute()
+                    except Exception as delete_err:
+                        logger.error("Failed to delete stale pending candidate %s: %s", existing_row.get("id"), delete_err)
+                        continue
+
+                    if not current_res.data:
+                        continue
+                    existing_row = current_res.data[0]
+                    if existing_row.get("status") == "pending":
+                        logger.warning(
+                            "Pending candidate %s was not deleted despite matching its pending status; omitting it from scan results.",
+                            existing_row.get("id"),
+                        )
+                        continue
+                else:
+                    try:
+                        refresh_data = {
+                            "distance_meters": dist_meters,
+                            "hamming_distance": hamming_dist,
+                            "similarity_pct": sim_pct,
+                            "classification": classification,
+                            "reason": reason,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        updated_res = (
+                            client.table(TABLE_DUPLICATE_CANDIDATES)
+                            .update(refresh_data)
+                            .eq("id", existing_row["id"])
+                            .eq("status", "pending")
+                            .execute()
+                        )
+                        if updated_res.data:
+                            existing_row = updated_res.data[0]
+                        else:
+                            # A concurrent review may have changed status; re-read persisted state.
+                            current_res = client.table(TABLE_DUPLICATE_CANDIDATES).select("*").eq(
+                                "id", existing_row["id"]
+                            ).execute()
+                            if current_res.data:
+                                existing_row = current_res.data[0]
+                    except Exception as update_err:
+                        logger.error("Failed to refresh pending candidate %s: %s", existing_row.get("id"), update_err)
             existing_row["primary_report"] = primary_rep
             existing_row["incoming_report"] = incoming_rep
             found_candidates.append(existing_row)

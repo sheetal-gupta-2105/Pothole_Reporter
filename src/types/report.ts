@@ -82,8 +82,8 @@ export interface DuplicatePair {
   primaryReportId: string;
   incomingReportId: string;
   distanceMeters: number;
-  simulatedVisualSimilarity: number; // 0 - 100 (%)
-  clusterConfidence: number; // 0 - 100 (%)
+  simulatedVisualSimilarity: number | null; // null when visual verification is unavailable
+  clusterConfidence?: number; // 0 - 100 (%) when visual metrics exist
   status: 'pending' | 'confirmed' | 'rejected';
   classification?: 'strong_duplicate' | 'possible_duplicate';
   reason?: string;
