@@ -50,6 +50,17 @@ body {
   animation: slideRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-scale-up,
+  .animate-slide-left,
+  .animate-slide-right {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Leaflet Popup overrides for modern dashboard look */
 .leaflet-popup-content-wrapper {
   border-radius: 12px !important;

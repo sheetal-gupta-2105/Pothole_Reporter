@@ -62,38 +62,38 @@ export const AppLayout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         {/* Top Header */}
-        <header className="h-16 bg-white border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between shrink-0 z-10 shadow-2xs">
-          <div className="flex items-center gap-3">
+        <header className="h-16 bg-white border-b border-slate-200/90 px-3 sm:px-6 flex items-center justify-between shrink-0 z-10 shadow-2xs">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open sidebar menu"
-              className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              className="lg:hidden p-1.5 sm:p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
             >
               <Menu className="h-5 w-5" />
             </button>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-none">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base md:text-lg font-bold text-slate-900 tracking-tight leading-tight truncate">
                 {getPageTitle()}
               </h2>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[11px] text-slate-400 font-medium">
+              <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 sm:mt-1 truncate">
+                <span className="hidden sm:inline text-[11px] text-slate-400 font-medium shrink-0">
                   Bengaluru Ward Network
                 </span>
-                <span className="h-1 w-1 rounded-full bg-slate-300" />
+                <span className="hidden sm:inline h-1 w-1 rounded-full bg-slate-300 shrink-0" />
                 {isDemoUser ? (
-                  <span className="text-[11px] text-amber-600 font-medium flex items-center gap-1">
+                  <span className="text-[10px] sm:text-[11px] text-amber-600 font-medium flex items-center gap-1 shrink-0">
                     <ShieldCheck className="h-3 w-3" /> Demo Mode
                   </span>
                 ) : error ? (
-                  <span className="text-[11px] text-orange-700 font-semibold flex items-center gap-1" title={error}>
-                    <AlertTriangle className="h-3 w-3" /> {isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'}
+                  <span className="text-[10px] sm:text-[11px] text-orange-700 font-semibold flex items-center gap-1 truncate" title={error}>
+                    <AlertTriangle className="h-3 w-3 shrink-0" /> {isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'}
                   </span>
                 ) : isLiveSync ? (
-                  <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+                  <span className="text-[10px] sm:text-[11px] text-emerald-600 font-semibold flex items-center gap-1 shrink-0">
                     <Database className="h-3 w-3" /> Live Supabase Synced
                   </span>
                 ) : (
-                  <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                  <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium flex items-center gap-1 shrink-0">
                     <Info className="h-3 w-3" /> Live Sync Unavailable
                   </span>
                 )}
@@ -101,7 +101,7 @@ export const AppLayout: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0">
             {pendingDuplicates > 0 && (
               <Link
                 to="/duplicates"
@@ -125,20 +125,21 @@ export const AppLayout: React.FC = () => {
               </Button>
             )}
 
-            <Link to="/report">
+            <Link to="/report" title="Report a road defect" aria-label="New Report">
               <Button
                 variant="primary"
                 size="sm"
                 leftIcon={<PlusCircle className="h-4 w-4 text-amber-400" />}
-                className="text-xs sm:text-sm font-semibold shadow-xs"
+                className="text-xs sm:text-sm font-semibold shadow-xs px-2.5 sm:px-3.5"
               >
-                New Report
+                <span className="hidden sm:inline">New Report</span>
+                <span className="sm:hidden sr-only">New Report</span>
               </Button>
             </Link>
 
             {/* Citizen Profile & Logout */}
             {user && (
-              <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-slate-200">
+              <div className="flex items-center gap-1 sm:gap-2 pl-1.5 sm:pl-3 border-l border-slate-200">
                 <div className="hidden xl:flex flex-col text-right">
                   <span className="text-xs font-bold text-slate-900 leading-tight">
                     {profile?.fullName || 'Citizen Reporter'}
@@ -148,10 +149,11 @@ export const AppLayout: React.FC = () => {
                   </span>
                 </div>
                 <div
-                  className="h-8 w-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs"
+                  className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0"
                   title={user.email || 'Citizen'}
+                  aria-label={profile?.fullName || user.email || 'Citizen profile'}
                 >
-                  <User className="h-4 w-4 text-slate-600" />
+                  <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-slate-600" />
                 </div>
                 <button
                   type="button"
@@ -165,7 +167,7 @@ export const AppLayout: React.FC = () => {
                   }}
                   aria-label="Sign out"
                   title="Sign out of portal"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>

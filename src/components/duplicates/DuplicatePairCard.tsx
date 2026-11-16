@@ -52,31 +52,31 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
 
   return (
     <Card className="border-slate-300 shadow-xs hover:border-slate-400 transition-all">
-      <CardHeader className="bg-slate-50/70 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-orange-100 text-orange-800 flex items-center justify-center font-bold text-xs">
+      <CardHeader className="bg-slate-50/70 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="h-8 w-8 rounded-lg bg-orange-100 text-orange-800 flex items-center justify-center font-bold text-xs shrink-0">
             <GitMerge className="h-4 w-4" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold text-slate-900">
-                {pair.id}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="font-mono text-xs font-bold text-slate-900 truncate" title={pair.id}>
+                {pair.id.length > 18 ? `${pair.id.slice(0, 14)}...` : pair.id}
               </span>
-              <span className="text-slate-300">•</span>
-              <span className="text-xs font-medium text-slate-600">
+              <span className="text-slate-300 shrink-0">•</span>
+              <span className="text-xs font-medium text-slate-600 truncate">
                 Spatial & Visual Cluster Match
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-500 truncate">
               Corridor: {primaryReport.roadName.split(',')[0]}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {pair.classification && (
             <span
-              className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${
+              className={`inline-flex items-center gap-1 text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full border shrink-0 ${
                 pair.classification === 'strong_duplicate'
                   ? 'bg-purple-100 text-purple-900 border-purple-300'
                   : 'bg-amber-100 text-amber-900 border-amber-300'
@@ -92,17 +92,17 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
           )}
 
           {pair.status === 'confirmed' ? (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+            <span className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
               <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
               <span>Duplicate Confirmed & Linked</span>
             </span>
           ) : pair.status === 'rejected' ? (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 text-slate-700">
+            <span className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-slate-200 text-slate-700 shrink-0">
               <XCircle className="h-3.5 w-3.5 text-slate-500" />
               <span>Match Rejected (Separate Defects)</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+            <span className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse shrink-0">
               <span>Pending Verification</span>
             </span>
           )}
@@ -163,12 +163,17 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Primary Report */}
           <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
                 Existing Primary Report
               </span>
-              <span className="font-mono text-xs font-bold text-slate-800">
-                {primaryReport.id}
+              <span className="font-mono text-xs font-bold text-slate-800 truncate" title={primaryReport.id}>
+                <span className="sm:hidden">
+                  {primaryReport.id.length === 36 && primaryReport.id.includes('-')
+                    ? `${primaryReport.id.slice(0, 8)}...`
+                    : primaryReport.id}
+                </span>
+                <span className="hidden sm:inline">{primaryReport.id}</span>
               </span>
             </div>
 
@@ -210,20 +215,27 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
               variant="outline"
               size="sm"
               onClick={() => onInspectReport(primaryReport)}
-              className="w-full text-xs py-1"
+              className="w-full text-xs py-1.5"
             >
-              View Full Report #{primaryReport.id}
+              View Full Report #{primaryReport.id.length === 36 && primaryReport.id.includes('-')
+                ? `${primaryReport.id.slice(0, 8)}...`
+                : primaryReport.id}
             </Button>
           </div>
 
           {/* Incoming Candidate Report */}
           <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/20 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider shrink-0">
                 Incoming Candidate Report
               </span>
-              <span className="font-mono text-xs font-bold text-slate-800">
-                {incomingReport.id}
+              <span className="font-mono text-xs font-bold text-slate-800 truncate" title={incomingReport.id}>
+                <span className="sm:hidden">
+                  {incomingReport.id.length === 36 && incomingReport.id.includes('-')
+                    ? `${incomingReport.id.slice(0, 8)}...`
+                    : incomingReport.id}
+                </span>
+                <span className="hidden sm:inline">{incomingReport.id}</span>
               </span>
             </div>
 
@@ -265,9 +277,11 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
               variant="outline"
               size="sm"
               onClick={() => onInspectReport(incomingReport)}
-              className="w-full text-xs py-1"
+              className="w-full text-xs py-1.5"
             >
-              View Full Report #{incomingReport.id}
+              View Full Report #{incomingReport.id.length === 36 && incomingReport.id.includes('-')
+                ? `${incomingReport.id.slice(0, 8)}...`
+                : incomingReport.id}
             </Button>
           </div>
         </div>

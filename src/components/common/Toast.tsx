@@ -16,7 +16,7 @@ export const ToastContainer: React.FC = () => {
   return (
     <div
       aria-live="polite"
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+      className="fixed bottom-[max(1rem,env(safe-area-inset-bottom,1rem))] right-[max(1rem,env(safe-area-inset-right,1rem))] left-3 sm:left-auto max-w-[calc(100vw-1.5rem)] sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-none"
     >
       {toasts.map((toast) => {
         const iconConfig = {
@@ -36,11 +36,11 @@ export const ToastContainer: React.FC = () => {
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto p-4 rounded-xl border shadow-lg flex items-start gap-3 transition-all transform translate-y-0 ${borderConfig}`}
+            className={`pointer-events-auto p-3.5 sm:p-4 rounded-xl border shadow-lg flex items-start gap-3 transition-all transform translate-y-0 ${borderConfig}`}
           >
             {iconConfig}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-900">{toast.title}</p>
+              <p className="text-sm font-semibold text-slate-900 leading-snug">{toast.title}</p>
               {toast.message && (
                 <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
                   {toast.message}
@@ -50,7 +50,7 @@ export const ToastContainer: React.FC = () => {
             <button
               onClick={() => removeToast(toast.id)}
               aria-label="Dismiss toast"
-              className="text-slate-400 hover:text-slate-600 p-0.5"
+              className="text-slate-400 hover:text-slate-600 p-2 -mr-1.5 -mt-1.5 rounded-lg flex items-center justify-center min-h-[38px] min-w-[38px] touch-manipulation transition-colors"
             >
               <X className="h-4 w-4" />
             </button>

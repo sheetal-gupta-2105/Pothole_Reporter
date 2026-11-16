@@ -270,17 +270,18 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   return (
     <div className={`relative rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex flex-col ${className}`}>
       {/* Map Filter Controls Bar */}
-      <div className="bg-white/95 backdrop-blur-md p-3 border-b border-slate-200 z-10 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium mr-1">
+      <div className="bg-white/95 backdrop-blur-md p-2.5 sm:p-3 border-b border-slate-200 z-10 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 shadow-2xs">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium mr-0.5 sm:mr-1 shrink-0">
             <Filter className="h-3.5 w-3.5" />
-            <span>Map Filters:</span>
+            <span className="hidden xs:inline">Map Filters:</span>
+            <span className="xs:hidden">Filters:</span>
           </div>
 
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'all' | ReportStatus)}
-            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2.5 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none flex-1 sm:flex-initial min-w-[95px]"
           >
             <option value="all">All Statuses</option>
             <option value="submitted">Submitted</option>
@@ -294,7 +295,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as 'all' | ReportPriority)}
-            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2.5 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none flex-1 sm:flex-initial min-w-[95px]"
           >
             <option value="all">All Priorities</option>
             <option value="critical">Critical Only</option>
@@ -308,7 +309,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             onChange={(e) =>
               setDuplicateFilter(e.target.value as 'all' | 'duplicates_only' | 'unique_only')
             }
-            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2.5 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+            className="text-xs bg-slate-50 border border-slate-300 rounded-md px-2 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none flex-1 sm:flex-initial min-w-[105px]"
           >
             <option value="all">All Complaints</option>
             <option value="duplicates_only">Flagged Duplicates Only</option>
@@ -322,16 +323,17 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
                 setPriorityFilter('all');
                 setDuplicateFilter('all');
               }}
-              className="text-xs text-rose-600 hover:text-rose-700 font-medium underline ml-1"
+              className="text-xs text-rose-600 hover:text-rose-700 font-medium underline ml-1 shrink-0"
             >
               Reset filters
             </button>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-            {visibleReports.length} Defect Markers Plotted
+        <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+          <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 sm:px-2.5 py-1 rounded-md border border-slate-200">
+            <span className="sm:hidden">{visibleReports.length} Plotted</span>
+            <span className="hidden sm:inline">{visibleReports.length} Defect Markers Plotted</span>
           </span>
           <Button
             variant="outline"
@@ -348,14 +350,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
       {/* Hotspots Quick Jump Strip */}
       <div className="bg-slate-50 border-b border-slate-200 px-3 py-1.5 flex items-center gap-2 overflow-x-auto text-[11px] text-slate-500 whitespace-nowrap z-10">
-        <span className="font-semibold text-slate-700 flex items-center gap-1">
+        <span className="font-semibold text-slate-700 flex items-center gap-1 shrink-0">
           <Layers className="h-3 w-3" /> Jump to:
         </span>
         {BENGALURU_HOTSPOTS.slice(0, 5).map((hotspot) => (
           <button
             key={hotspot.name}
             onClick={() => handleJumpToHotspot(hotspot.lat, hotspot.lng)}
-            className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:border-slate-400 font-medium transition-colors"
+            className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:border-slate-400 font-medium transition-colors shrink-0"
           >
             {hotspot.name.split(' (')[0]}
           </button>
@@ -363,7 +365,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       </div>
 
       {/* Map DOM Element */}
-      <div ref={mapContainerRef} className="flex-1 w-full min-h-[500px] z-0" />
+      <div ref={mapContainerRef} className="flex-1 w-full min-h-[260px] sm:min-h-[360px] lg:min-h-[440px] z-0" />
 
       {/* Priority Legend Overlay */}
       <div className="absolute bottom-6 right-6 z-20 bg-white/95 backdrop-blur-md p-3 rounded-lg border border-slate-200 shadow-md text-xs space-y-1.5 hidden sm:block">

@@ -104,15 +104,15 @@ export const MapPage: React.FC = () => {
       </div>
 
       {/* Map Information Strip */}
-      <div className="flex items-center justify-between text-xs text-slate-500 bg-white px-4 py-2 rounded-lg border border-slate-200">
-        <div className="flex items-center gap-2">
-          <MapPin className="h-3.5 w-3.5 text-slate-400" />
-          <span>
+      <div className="flex items-center justify-between text-xs text-slate-500 bg-white px-3 sm:px-4 py-2 rounded-lg border border-slate-200">
+        <div className="flex items-center gap-2 min-w-0">
+          <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+          <span className="truncate sm:whitespace-normal">
             Centered on Greater Bengaluru. Click any defect pin to inspect photo, depth, and
             status.
           </span>
         </div>
-        <span className="text-[11px] text-slate-400 font-mono hidden md:inline">
+        <span className="text-[11px] text-slate-400 font-mono hidden md:inline shrink-0 ml-2">
           OpenStreetMap Tile Engine
         </span>
       </div>
@@ -123,7 +123,7 @@ export const MapPage: React.FC = () => {
         duplicates={duplicates}
         onSelectReport={(report) => selectReport(report.id)}
         selectedCoordinates={selectedCoordinates}
-        className="h-[calc(100vh-230px)] min-h-[550px] shadow-sm"
+        className="h-[calc(100vh-280px)] sm:h-[calc(100vh-250px)] lg:h-[calc(100vh-230px)] min-h-[380px] sm:min-h-[480px] lg:min-h-[550px] shadow-sm"
       />
 
       {/* Report Details Drawer */}

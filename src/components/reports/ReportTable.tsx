@@ -57,13 +57,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({
         <table className="w-full text-left text-xs sm:text-sm border-collapse">
           <thead>
             <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[11px] tracking-wider">
-              <th className="py-3 px-4">Report ID</th>
-              <th className="py-3 px-4">Road & Location</th>
-              <th className="py-3 px-4">BBMP Zone</th>
-              <th className="py-3 px-4">Priority</th>
-              <th className="py-3 px-4">Status</th>
-              <th className="py-3 px-4">Reported</th>
-              <th className="py-3 px-4 text-right">Actions</th>
+              <th className="py-3 px-2.5 sm:px-4">Report ID</th>
+              <th className="py-3 px-2.5 sm:px-4">Road & Location</th>
+              <th className="hidden md:table-cell py-3 px-4">BBMP Zone</th>
+              <th className="hidden sm:table-cell py-3 px-4">Priority</th>
+              <th className="py-3 px-2.5 sm:px-4">
+                <span className="sm:hidden">Status & Priority</span>
+                <span className="hidden sm:inline">Status</span>
+              </th>
+              <th className="hidden lg:table-cell py-3 px-4">Reported</th>
+              <th className="py-3 px-2.5 sm:px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -74,12 +77,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                 className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
               >
                 {/* ID & thumbnail */}
-                <td className="py-3 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
-                  <div className="flex items-center gap-2.5">
+                <td className="py-2.5 sm:py-3 px-2.5 sm:px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
+                  <div className="flex items-center gap-2 sm:gap-2.5">
                     <img
                       src={report.imageUrl}
                       alt="Thumbnail"
-                      className="h-9 w-9 rounded-lg object-cover border border-slate-200 bg-slate-100 shrink-0"
+                      className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg object-cover border border-slate-200 bg-slate-100 shrink-0"
                       onError={(e) => {
                         (e.target as HTMLImageElement).src =
                           'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=120&q=80';
@@ -87,7 +90,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                     />
                     <div>
                       <span
-                        className="block group-hover:text-amber-600 transition-colors"
+                        className="block group-hover:text-amber-600 transition-colors text-xs sm:text-sm"
                         title={report.id}
                       >
                         {report.id.length === 36 && report.id.includes('-')
@@ -95,26 +98,32 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                           : report.id}
                       </span>
                       {report.duplicateCount && report.duplicateCount > 0 ? (
-                        <span className="text-[10px] text-orange-600 font-semibold">
+                        <span className="text-[10px] text-orange-600 font-semibold block leading-tight">
                           +{report.duplicateCount} confirmed duplicate{report.duplicateCount === 1 ? '' : 's'}
                         </span>
                       ) : null}
+                      <span className="lg:hidden text-[10px] text-slate-400 font-normal block leading-tight mt-0.5">
+                        {formatTimeAgo(report.createdAt)}
+                      </span>
                     </div>
                   </div>
                 </td>
 
                 {/* Road Name */}
-                <td className="py-3 px-4 max-w-xs">
-                  <p className="font-semibold text-slate-900 truncate">
+                <td className="py-2.5 sm:py-3 px-2.5 sm:px-4 min-w-[100px] max-w-[130px] sm:max-w-xs">
+                  <p className="font-semibold text-slate-900 truncate text-xs sm:text-sm">
                     {report.roadName}
                   </p>
-                  <p className="text-xs text-slate-500 truncate mt-0.5">
+                  <p className="text-[11px] sm:text-xs text-slate-500 truncate mt-0.5">
                     {report.description}
+                  </p>
+                  <p className="md:hidden text-[10px] text-slate-400 truncate mt-0.5">
+                    {report.zone} • Ward #{report.wardNumber}
                   </p>
                 </td>
 
-                {/* Zone */}
-                <td className="py-3 px-4 whitespace-nowrap">
+                {/* Zone - hidden on mobile (<768px), visible on tablet and desktop */}
+                <td className="hidden md:table-cell py-3 px-4 whitespace-nowrap">
                   <div className="flex flex-col gap-0.5">
                     <ZoneBadge zone={report.zone} />
                     <span className="text-[11px] text-slate-400">
@@ -123,8 +132,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                   </div>
                 </td>
 
-                {/* Priority */}
-                <td className="py-3 px-4 whitespace-nowrap">
+                {/* Priority - hidden on mobile (<640px), combined into Status column on phone */}
+                <td className="hidden sm:table-cell py-3 px-4 whitespace-nowrap">
                   <div className="flex flex-col items-start gap-1">
                     <span className="text-[10px] text-slate-400">Citizen priority</span>
                     <PriorityBadge priority={report.priority} size="sm" />
@@ -136,27 +145,35 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                   </div>
                 </td>
 
-                {/* Status */}
-                <td className="py-3 px-4 whitespace-nowrap">
+                {/* Status - always visible; on mobile (<640px) also includes priority badge */}
+                <td className="py-2.5 sm:py-3 px-2.5 sm:px-4 whitespace-nowrap">
                   <div className="flex flex-col items-start gap-1">
                     <StatusBadge status={report.status} size="sm" isDuplicate={Boolean(report.duplicateOfId)} />
+                    <div className="sm:hidden flex flex-col gap-0.5">
+                      <PriorityBadge priority={report.priority} size="sm" />
+                      {report.priorityScore != null && (
+                        <span className="text-[9px] font-medium text-slate-500">
+                          Civic: {report.priorityScore}/100
+                        </span>
+                      )}
+                    </div>
                     {report.status === 'rejected' && !report.duplicateOfId && (
                       <span className="text-[10px] text-slate-500">Rejected report</span>
                     )}
                   </div>
                 </td>
 
-                {/* Date */}
-                <td className="py-3 px-4 whitespace-nowrap text-xs text-slate-500">
+                {/* Date - hidden on mobile & tablet (<1024px), shown under ID on smaller screens */}
+                <td className="hidden lg:table-cell py-3 px-4 whitespace-nowrap text-xs text-slate-500">
                   <span title={formatDate(report.createdAt)}>
                     {formatTimeAgo(report.createdAt)}
                   </span>
                 </td>
 
                 {/* Actions */}
-                <td className="py-3 px-4 text-right whitespace-nowrap">
+                <td className="py-2.5 sm:py-3 px-2.5 sm:px-4 text-right whitespace-nowrap">
                   <div
-                    className="inline-flex items-center gap-1.5"
+                    className="inline-flex items-center gap-1 sm:gap-1.5"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Button
@@ -164,7 +181,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                       size="sm"
                       onClick={() => onSelectReport(report)}
                       leftIcon={<Eye className="h-3.5 w-3.5" />}
-                      className="text-xs px-2 py-1"
+                      className="text-xs px-2 py-1.5 sm:py-1"
                     >
                       View
                     </Button>
@@ -187,8 +204,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
 
       {/* Pagination Footer */}
       {totalPages > 1 && (
-        <div className="p-3.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-xs text-slate-500">
-          <span>
+        <div className="p-3 sm:p-3.5 border-t border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-0 text-xs text-slate-500">
+          <span className="text-center sm:text-left">
             Page <strong>{validCurrentPage}</strong> of <strong>{totalPages}</strong> (
             {reports.length} total records)
           </span>
@@ -200,7 +217,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
               disabled={validCurrentPage <= 1}
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               leftIcon={<ChevronLeft className="h-3.5 w-3.5" />}
-              className="text-xs px-2 py-1"
+              className="text-xs px-2.5 py-1.5 sm:px-2 sm:py-1"
             >
               Previous
             </Button>
@@ -211,7 +228,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
               disabled={validCurrentPage >= totalPages}
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               rightIcon={<ChevronRight className="h-3.5 w-3.5" />}
-              className="text-xs px-2 py-1"
+              className="text-xs px-2.5 py-1.5 sm:px-2 sm:py-1"
             >
               Next
             </Button>

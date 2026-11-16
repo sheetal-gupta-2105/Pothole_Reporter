@@ -68,28 +68,40 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose, onS
       {/* Drawer Panel */}
       <div className="relative w-full max-w-xl bg-white shadow-2xl flex flex-col h-full z-10 animate-slide-left overflow-hidden">
         {/* Header */}
-        <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold text-slate-500">
-                {report.id}
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex items-start justify-between gap-3 bg-slate-50/50">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <span
+                className="font-mono text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
+                title={`Report ID: ${report.id} (Click to copy)`}
+                onClick={() => {
+                  navigator.clipboard.writeText(report.id);
+                  showToast('info', 'ID Copied', report.id);
+                }}
+              >
+                <span className="sm:hidden">
+                  {report.id.length === 36 && report.id.includes('-')
+                    ? `${report.id.slice(0, 8)}...`
+                    : report.id}
+                </span>
+                <span className="hidden sm:inline">{report.id}</span>
               </span>
               <StatusBadge status={report.status} size="sm" isDuplicate={Boolean(report.duplicateOfId)} />
               <PriorityBadge priority={report.priority} size="sm" />
               {report.isLiveRecord && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full shrink-0">
                   <Database className="h-3 w-3 text-emerald-600" /> Supabase
                 </span>
               )}
             </div>
-            <h2 className="text-base font-bold text-slate-900 mt-1 line-clamp-1">
+            <h2 className="text-sm sm:text-base font-bold text-slate-900 mt-1 line-clamp-1">
               {report.roadName}
             </h2>
           </div>
           <button
             onClick={onClose}
             aria-label="Close drawer"
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+            className="p-2 -mr-1 -mt-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <X className="h-5 w-5" />
           </button>
@@ -200,7 +212,7 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose, onS
             <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2">
               <p className="text-xs font-bold text-orange-900">Closed as a confirmed duplicate</p>
               <p className="text-xs text-orange-800">
-                Master report reference: <span className="font-mono font-semibold">{report.duplicateOfId}</span>
+                Master report reference: <span className="font-mono font-semibold break-all">{report.duplicateOfId}</span>
               </p>
               {masterReport && onSelectReport ? (
                 <Button
