@@ -20,7 +20,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
-  const { reports, duplicates, isLiveSync } = useReports();
+  const { reports, duplicates, isLiveSync, error, showToast } = useReports();
   const { user, profile, signOut, isDemoUser } = useAuth();
 
   const pendingDuplicatesCount = duplicates.filter(
@@ -87,15 +87,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
             </p>
           </div>
         </div>
-        {isLiveSync ? (
+        {isDemoUser ? (
+          <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50/80 border border-amber-200/60 text-[11px] text-amber-800 font-medium">
+            <Radio className="h-3 w-3 text-amber-600" />
+            <span>Demo Mode</span>
+          </div>
+        ) : error ? (
+          <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-50 border border-orange-200 text-[11px] text-orange-800 font-semibold" title={error}>
+            <Radio className="h-3 w-3 text-orange-600" />
+            <span>{isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'}</span>
+          </div>
+        ) : isLiveSync ? (
           <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 font-semibold">
             <Database className="h-3 w-3 text-emerald-600" />
             <span>Supabase Live • Phase 3.4</span>
           </div>
         ) : (
-          <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50/80 border border-amber-200/60 text-[11px] text-amber-800 font-medium">
-            <Radio className="h-3 w-3 text-amber-600 animate-pulse" />
-            <span>Demo Fallback Mode</span>
+          <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-[11px] text-slate-700 font-medium">
+            <Radio className="h-3 w-3 text-slate-500" />
+            <span>Live Sync Unavailable</span>
           </div>
         )}
       </div>
@@ -164,7 +174,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavClick }) => {
               </div>
               <button
                 type="button"
-                onClick={() => signOut()}
+                onClick={async () => {
+                  const { error: signOutError } = await signOut();
+                  if (signOutError) {
+                    showToast('error', 'Could Not Sign Out', signOutError.message);
+                  }
+                }}
                 aria-label="Sign out"
                 title="Sign out of portal"
                 className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"

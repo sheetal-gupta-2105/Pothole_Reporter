@@ -21,7 +21,7 @@ import { useAuth } from '../../hooks/useAuth';
 
 export const AppLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { resetToDefaults, duplicates, showToast, isLiveSync } = useReports();
+  const { resetToDefaults, duplicates, showToast, isLiveSync, error } = useReports();
   const { user, profile, signOut, isDemoUser } = useAuth();
   const location = useLocation();
 
@@ -80,13 +80,21 @@ export const AppLayout: React.FC = () => {
                   Bengaluru Ward Network
                 </span>
                 <span className="h-1 w-1 rounded-full bg-slate-300" />
-                {isLiveSync ? (
+                {isDemoUser ? (
+                  <span className="text-[11px] text-amber-600 font-medium flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3" /> Demo Mode
+                  </span>
+                ) : error ? (
+                  <span className="text-[11px] text-orange-700 font-semibold flex items-center gap-1" title={error}>
+                    <AlertTriangle className="h-3 w-3" /> {isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'}
+                  </span>
+                ) : isLiveSync ? (
                   <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
                     <Database className="h-3 w-3" /> Live Supabase Synced
                   </span>
                 ) : (
-                  <span className="text-[11px] text-amber-600 font-medium flex items-center gap-1">
-                    <ShieldCheck className="h-3 w-3" /> Demo Mode
+                  <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                    <Info className="h-3 w-3" /> Live Sync Unavailable
                   </span>
                 )}
               </div>
@@ -104,16 +112,18 @@ export const AppLayout: React.FC = () => {
               </Link>
             )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={resetToDefaults}
-              leftIcon={<RotateCcw className="h-3.5 w-3.5 text-slate-500" />}
-              className="hidden md:inline-flex text-xs"
-              title="Reset deterministic demo dataset"
-            >
-              Reset Data
-            </Button>
+            {isDemoUser && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetToDefaults}
+                leftIcon={<RotateCcw className="h-3.5 w-3.5 text-slate-500" />}
+                className="hidden md:inline-flex text-xs"
+                title="Reset deterministic demo dataset"
+              >
+                Reset Data
+              </Button>
+            )}
 
             <Link to="/report">
               <Button
@@ -146,7 +156,11 @@ export const AppLayout: React.FC = () => {
                 <button
                   type="button"
                   onClick={async () => {
-                    await signOut();
+                    const { error: signOutError } = await signOut();
+                    if (signOutError) {
+                      showToast('error', 'Could Not Sign Out', signOutError.message);
+                      return;
+                    }
                     showToast('info', 'Signed Out', 'You have been logged out of the citizen portal.');
                   }}
                   aria-label="Sign out"
@@ -163,7 +177,19 @@ export const AppLayout: React.FC = () => {
         {/* Civic System Status Banner */}
         <div className="bg-slate-100 border-b border-slate-200/80 px-4 sm:px-6 py-1.5 flex items-center justify-between text-[11px] text-slate-600">
           <div className="flex items-center gap-1.5">
-            {isLiveSync ? (
+            {isDemoUser ? (
+              <>
+                <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                <span><strong>Demo Mode Active:</strong> Operating with local deterministic data.</span>
+              </>
+            ) : error ? (
+              <>
+                <AlertTriangle className="h-3.5 w-3.5 text-orange-600 shrink-0" />
+                <span>
+                  <strong>{isLiveSync ? 'Live Data May Be Stale:' : 'Live Sync Error:'}</strong> {error}
+                </span>
+              </>
+            ) : isLiveSync ? (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                 <span>
@@ -174,7 +200,7 @@ export const AppLayout: React.FC = () => {
               <>
                 <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                 <span>
-                  <strong>Demo Mode Active:</strong> Operating with local deterministic data. Connect Supabase credentials to enable live persistence.
+                  <strong>Live Sync Unavailable:</strong> No synchronized live report data is currently available.
                 </span>
               </>
             )}

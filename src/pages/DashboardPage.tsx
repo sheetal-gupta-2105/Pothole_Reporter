@@ -18,12 +18,33 @@ import { WardSummaryCard } from '../components/dashboard/WardSummaryCard';
 import { ReportTable } from '../components/reports/ReportTable';
 import { ReportDrawer } from '../components/reports/ReportDrawer';
 import { Button } from '../components/common/Button';
-import type { PotholeReport } from '../types/report';
+import { useAuth } from '../hooks/useAuth';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const { reports, duplicates, isLiveSync } = useReports();
-  const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
+  const { reports, duplicates, isLiveSync, isLoading, error } = useReports();
+  const { isDemoUser } = useAuth();
+  const reportsKey = JSON.stringify(reports.map((report) => report.id));
+  const [reportSelection, setReportSelection] = useState(() => ({
+    reportId: null as string | null,
+    reportsKey,
+  }));
+
+  if (reportSelection.reportsKey !== reportsKey) {
+    const stillAvailable = reportSelection.reportId !== null &&
+      reports.some((report) => report.id === reportSelection.reportId);
+    setReportSelection({
+      reportId: stillAvailable ? reportSelection.reportId : null,
+      reportsKey,
+    });
+  }
+
+  const selectReport = (reportId: string | null) => {
+    setReportSelection({ reportId, reportsKey });
+  };
+  const selectedReport = reportSelection.reportId
+    ? reports.find((report) => report.id === reportSelection.reportId) ?? null
+    : null;
 
   const totalReports = reports.length;
   const awaitingReview = reports.filter(
@@ -35,6 +56,20 @@ export const DashboardPage: React.FC = () => {
   ).length;
 
   const recentReports = reports.slice(0, 5);
+  const syncStatusLabel = isDemoUser
+    ? 'Demo Data'
+    : error
+      ? isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'
+      : isLiveSync
+        ? 'Live Supabase Connected'
+        : isLoading ? 'Connecting to Live Reports' : 'Live Sync Unavailable';
+  const syncStatusClass = isDemoUser
+    ? 'text-slate-400'
+    : error
+      ? 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-200 border border-amber-500/30'
+      : isLiveSync
+        ? 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+        : 'text-slate-300 text-xs';
 
   return (
     <div className="space-y-6">
@@ -45,13 +80,10 @@ export const DashboardPage: React.FC = () => {
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-slate-900 tracking-wide uppercase">
               Bengaluru BBMP
             </span>
-            {isLiveSync ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                <Database className="h-3 w-3" /> Live Supabase Connected
-              </span>
-            ) : (
-              <span className="text-slate-400 text-xs">Ward Defect Management System (Demo)</span>
-            )}
+            <span className={syncStatusClass} title={error || undefined}>
+              {!isDemoUser && isLiveSync && <Database className="h-3 w-3" />}
+              {syncStatusLabel}
+            </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black mt-2 tracking-tight">
             Civic Road Defect & Duplicate Intelligence
@@ -120,9 +152,9 @@ export const DashboardPage: React.FC = () => {
         />
 
         <StatCard
-          title="High & Critical Priority"
+          title="Citizen High & Critical Priority"
           value={highPriority}
-          subtitle="Severe crater hazards"
+          subtitle="Based on citizen-selected priority"
           icon={AlertOctagon}
           iconColor="text-red-600"
           iconBg="bg-red-50"
@@ -161,7 +193,7 @@ export const DashboardPage: React.FC = () => {
 
         <ReportTable
           reports={recentReports}
-          onSelectReport={(report) => setSelectedReport(report)}
+          onSelectReport={(report) => selectReport(report.id)}
           pageSize={5}
         />
       </div>
@@ -169,8 +201,8 @@ export const DashboardPage: React.FC = () => {
       {/* Report Drawer */}
       <ReportDrawer
         report={selectedReport}
-        onClose={() => setSelectedReport(null)}
-        onSelectReport={setSelectedReport}
+        onClose={() => selectReport(null)}
+        onSelectReport={(report) => selectReport(report.id)}
       />
     </div>
   );

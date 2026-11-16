@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   RotateCcw,
   Download,
@@ -9,6 +10,7 @@ import {
   MapPin,
   User,
   CheckCircle2,
+  LogOut,
 } from 'lucide-react';
 import { useReports } from '../context/ReportContext';
 import { useAuth } from '../hooks/useAuth';
@@ -24,15 +26,63 @@ export const SettingsPage: React.FC = () => {
     loadStressTestData,
     showToast,
   } = useReports();
-  const { user, profile, isConfigured, isDemoUser } = useAuth();
+  const { user, profile, isConfigured, isDemoUser, enableDemoSession, signOut } = useAuth();
+  const navigate = useNavigate();
 
   // Settings State
   const [similarityThreshold, setSimilarityThreshold] = useState(85);
   const [duplicateRadiusMeters, setDuplicateRadiusMeters] = useState(40);
   const [autoEscalateCritical, setAutoEscalateCritical] = useState(true);
+  const [isSwitchingToDemo, setIsSwitchingToDemo] = useState(false);
+  const [isExitingDemo, setIsExitingDemo] = useState(false);
 
   const handleSaveSettings = () => {
     showToast('success', 'Settings Saved', 'Detection thresholds and demo parameters updated.');
+  };
+
+  const handleSwitchToDemo = async () => {
+    const confirmed = window.confirm(
+      'Switch to Demo Mode? You will leave your current live account session. Demo mode uses local browser data. Your existing Supabase reports will not be deleted or modified.'
+    );
+    if (!confirmed) return;
+
+    setIsSwitchingToDemo(true);
+    try {
+      const { error } = await enableDemoSession();
+      if (error) {
+        showToast('error', 'Could Not Switch to Demo Mode', error.message);
+        return;
+      }
+      showToast('success', 'Demo Mode Activated', 'Your live account session has ended. Demo data is stored locally in this browser.');
+    } finally {
+      setIsSwitchingToDemo(false);
+    }
+  };
+
+  const handleExitDemo = async () => {
+    const confirmed = window.confirm(
+      'Exit Demo Mode? You will leave this local demo session and return to Login. Exiting does not delete your locally stored demo dataset or delete or modify existing Supabase reports.'
+    );
+    if (!confirmed) return;
+
+    setIsExitingDemo(true);
+    try {
+      const { error } = await signOut();
+      if (error) {
+        showToast('error', 'Could Not Exit Demo Mode', error.message);
+        return;
+      }
+      showToast('success', 'Demo Session Ended', 'Sign in with Supabase to return to your live account.');
+      navigate('/login', { replace: true });
+    } catch (error) {
+      showToast(
+        'error',
+        'Could Not Exit Demo Mode',
+        error instanceof Error ? error.message : 'Sign out failed. Please try again.'
+      );
+    } finally {
+      setIsExitingDemo(false);
+    }
   };
 
   return (
@@ -62,12 +112,12 @@ export const SettingsPage: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-xs text-slate-600 leading-relaxed">
-            All reports and duplicate cluster records are stored locally in your browser
-            (<code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">localStorage</code>
-            ). You can reset to the original deterministic Bengaluru dataset or load extended
-            records.
+            {isDemoUser
+              ? <>Demo reports and duplicate cluster records are stored locally in your browser (<code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">localStorage</code>). You can reset the demo dataset or load extended records.</>
+              : 'Demo dataset controls are available only in demo mode. Export uses the reports currently loaded for your account.'}
           </p>
 
+          {isDemoUser && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
               <div>
@@ -113,6 +163,7 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* Export Section */}
           <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
@@ -269,6 +320,41 @@ export const SettingsPage: React.FC = () => {
               <span className="text-[11px] text-slate-500">Supabase Auth ID</span>
             </div>
           </div>
+          {isDemoUser && (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <p className="text-xs text-slate-500 mb-2">
+                Return to the Login page to explicitly authenticate with Supabase.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExitDemo}
+                isLoading={isExitingDemo}
+                disabled={isExitingDemo}
+                leftIcon={<LogOut className="h-3.5 w-3.5" />}
+                className="text-xs"
+              >
+                Exit Demo Mode
+              </Button>
+            </div>
+          )}
+          {isConfigured && !isDemoUser && (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <p className="text-xs text-slate-500 mb-2">
+                Leave your live account session and use the local demo dataset in this browser.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSwitchToDemo}
+                isLoading={isSwitchingToDemo}
+                disabled={isSwitchingToDemo}
+                className="text-xs"
+              >
+                Switch to Demo Mode
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

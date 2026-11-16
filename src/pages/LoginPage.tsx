@@ -29,7 +29,10 @@ export const LoginPage: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('confirmed') === 'true' || window.location.hash.includes('access_token')) {
+      if (params.get('password_updated') === 'true') {
+        return 'Password updated successfully. Sign in with your new password.';
+      }
+      if (params.get('confirmed') === 'true') {
         return 'Email confirmed successfully! You can now access the civic dashboard.';
       }
     }
@@ -104,8 +107,13 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleDemoLogin = () => {
-    enableDemoSession();
+  const handleDemoLogin = async () => {
+    setErrorMessage(null);
+    const { error } = await enableDemoSession();
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
     navigate(fromLocation, { replace: true });
   };
 
@@ -227,6 +235,16 @@ export const LoginPage: React.FC = () => {
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              {isConfigured && (
+                <div className="flex justify-end mt-1.5">
+                  <Link
+                    to="/forgot-password"
+                    className="text-[11px] font-semibold text-slate-600 hover:text-amber-700 underline"
+                  >
+                    Forgot Password?
+                  </Link>
+                </div>
+              )}
             </div>
 
             <Button

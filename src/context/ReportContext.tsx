@@ -231,7 +231,6 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             : 'Failed to fetch reports from Supabase';
 
         setError(msg);
-        setIsLiveSync(false);
         console.warn('[Pothole Reporter] Supabase fetch error:', msg);
       } finally {
         if (requestId === reportRequestIdRef.current) {
@@ -644,6 +643,11 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const resetToDefaults = () => {
+    if (!isDemoUser) {
+      showToast('error', 'Demo Controls Unavailable', 'Demo dataset controls can only be used in demo mode.');
+      return;
+    }
+
     setReports(INITIAL_REPORTS);
     setDuplicates(INITIAL_DUPLICATE_PAIRS);
     localStorage.removeItem(STORAGE_REPORTS_KEY);
@@ -652,6 +656,11 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const loadStressTestData = () => {
+    if (!isDemoUser) {
+      showToast('error', 'Demo Controls Unavailable', 'Demo dataset controls can only be used in demo mode.');
+      return;
+    }
+
     const extraReports: PotholeReport[] = [
       {
         id: 'BLR-2026-9041',

@@ -18,6 +18,7 @@ export interface AuthContextType {
   isConfigured: boolean;
   configError: string | null;
   isDemoUser: boolean;
+  isPasswordRecovery: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | Error | null }>;
   signUp: (
     email: string,
@@ -27,14 +28,28 @@ export interface AuthContextType {
     error: AuthError | Error | null;
     data: { user: User | null; session: Session | null } | null;
   }>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<{ error: AuthError | Error | null }>;
+  requestPasswordReset: (email: string) => Promise<{ error: AuthError | Error | null }>;
+  updatePassword: (password: string) => Promise<{ error: AuthError | Error | null }>;
+  cancelPasswordRecovery: () => void;
   resendConfirmation: (email: string) => Promise<{ error: AuthError | Error | null }>;
-  enableDemoSession: () => void;
+  enableDemoSession: () => Promise<{ error: AuthError | Error | null }>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const DEMO_USER_STORAGE_KEY = 'pothole_reporter_demo_session';
+const PASSWORD_RECOVERY_STORAGE_KEY = 'pothole_reporter_password_recovery_user';
+
+const readPasswordRecoveryMarker = (): string | null => {
+  try {
+    return typeof window === 'undefined'
+      ? null
+      : sessionStorage.getItem(PASSWORD_RECOVERY_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
 
 const MOCK_DEMO_USER: User = {
   id: 'demo-citizen-blr-001',
@@ -57,6 +72,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const configStatus = getSupabaseConfigStatus();
 
   const [session, setSession] = useState<Session | null>(null);
+  const passwordRecoveryUserIdRef = useRef<string | null>(readPasswordRecoveryMarker());
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(() => {
     return localStorage.getItem(DEMO_USER_STORAGE_KEY) === 'true';
   });
@@ -68,6 +85,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [loading, setLoading] = useState(() => configured && Boolean(supabase));
   const authUserIdRef = useRef<string | null>(user?.id ?? null);
+  const demoModeRef = useRef(isDemoUser);
+  const demoSwitchInProgressRef = useRef(false);
+  const demoSwitchGenerationRef = useRef(0);
+  const authEventVersionRef = useRef(0);
+
+  const setPasswordRecoveryUserId = useCallback((userId: string | null) => {
+    passwordRecoveryUserIdRef.current = userId;
+    try {
+      if (userId) {
+        sessionStorage.setItem(PASSWORD_RECOVERY_STORAGE_KEY, userId);
+      } else {
+        sessionStorage.removeItem(PASSWORD_RECOVERY_STORAGE_KEY);
+      }
+    } catch {
+      // Recovery remains available for this page session if storage is blocked.
+    }
+    setIsPasswordRecovery(userId !== null);
+  }, []);
 
   // Helper to extract a display-ready CitizenProfile from Supabase User
   const extractProfile = useCallback((u: User | null): CitizenProfile | null => {
@@ -93,53 +128,120 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     let mounted = true;
 
-    // Restore existing session
+    // Restore existing session unless this browser already chose demo mode.
+    const restoreEventVersion = authEventVersionRef.current;
     supabase.auth
       .getSession()
       .then(({ data: { session: existingSession }, error }) => {
         if (!mounted) return;
+        if (restoreEventVersion !== authEventVersionRef.current) return;
+
+        const recoveryUserId = passwordRecoveryUserIdRef.current;
+        if (recoveryUserId && existingSession?.user.id === recoveryUserId) {
+          if (authUserIdRef.current !== existingSession.user.id) {
+            clearSignedUrlCache();
+            authUserIdRef.current = existingSession.user.id;
+          }
+          demoModeRef.current = false;
+          localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+          setPasswordRecoveryUserId(existingSession.user.id);
+          setSession(existingSession);
+          setUser(existingSession.user);
+          setIsDemoUser(false);
+          setLoading(false);
+          return;
+        }
+        if (recoveryUserId) setPasswordRecoveryUserId(null);
+        if (demoModeRef.current || localStorage.getItem(DEMO_USER_STORAGE_KEY) === 'true') {
+          demoModeRef.current = true;
+          setUser(MOCK_DEMO_USER);
+          setSession(null);
+          setIsDemoUser(true);
+          setLoading(false);
+          return;
+        }
         if (error) {
           console.warn('[Pothole Reporter] Error restoring session:', error.message);
         }
         if (existingSession) {
           setSession(existingSession);
           setUser(existingSession.user);
+          demoModeRef.current = false;
           setIsDemoUser(false);
         }
         setLoading(false);
       })
       .catch((err) => {
-        if (!mounted) return;
+        if (!mounted || restoreEventVersion !== authEventVersionRef.current) return;
         console.warn('[Pothole Reporter] Failed to get session:', err);
+        setPasswordRecoveryUserId(null);
         setLoading(false);
       });
 
     // Listen for auth state changes (sign in, sign out, token refresh, password recovery)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-  if (!mounted) return;
+    } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      if (!mounted) return;
+      authEventVersionRef.current += 1;
 
-  const nextUserId = currentSession?.user?.id ?? null;
+      if (event === 'SIGNED_OUT') {
+        setPasswordRecoveryUserId(null);
+      } else if (event === 'PASSWORD_RECOVERY' && currentSession) {
+        demoSwitchGenerationRef.current += 1;
+        demoSwitchInProgressRef.current = false;
+        demoModeRef.current = false;
+        localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+        setPasswordRecoveryUserId(currentSession.user.id);
+      } else if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryUserId(null);
+      } else if (passwordRecoveryUserIdRef.current) {
+        const recoveryUserId = passwordRecoveryUserIdRef.current;
+        const currentUserId = currentSession?.user.id ?? null;
+        const isRecoveryContinuationEvent =
+          event === 'INITIAL_SESSION' ||
+          event === 'TOKEN_REFRESHED' ||
+          event === 'USER_UPDATED';
 
-  // Clear cached private image URLs only when the authenticated
-  // user's identity changes, not during ordinary token refreshes.
-  if (authUserIdRef.current !== nextUserId) {
-    clearSignedUrlCache();
-    authUserIdRef.current = nextUserId;
-  }
+        if (currentUserId === recoveryUserId && isRecoveryContinuationEvent) {
+          setPasswordRecoveryUserId(currentUserId);
+        } else {
+          setPasswordRecoveryUserId(null);
+        }
+      }
 
-  setSession(currentSession);
-  setUser(currentSession?.user ?? null);
-  setIsDemoUser(false);
-  setLoading(false);
-});
+      if (demoSwitchInProgressRef.current) return;
+
+      if (demoModeRef.current && !(event === 'SIGNED_IN' && currentSession)) {
+        setLoading(false);
+        return;
+      }
+
+      if (event === 'SIGNED_IN' && currentSession) {
+        demoModeRef.current = false;
+        localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+      }
+
+      const nextUserId = currentSession?.user?.id ?? null;
+
+      // Clear cached private image URLs only when the authenticated
+      // user's identity changes, not during ordinary token refreshes.
+      if (authUserIdRef.current !== nextUserId) {
+        clearSignedUrlCache();
+        authUserIdRef.current = nextUserId;
+      }
+
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      setIsDemoUser(false);
+      setLoading(false);
+    });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [configured]);
+  }, [configured, setPasswordRecoveryUserId]);
 
   // Sign In with email and password
   const signIn = useCallback(
@@ -159,6 +261,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (!error && data.session) {
+        demoModeRef.current = false;
+        setPasswordRecoveryUserId(null);
         setSession(data.session);
         setUser(data.user);
         setIsDemoUser(false);
@@ -167,7 +271,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return { error };
     },
-    [configured]
+    [configured, setPasswordRecoveryUserId]
   );
 
   // Sign Up new citizen
@@ -204,9 +308,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (!error && data.session) {
+        demoModeRef.current = false;
+        setPasswordRecoveryUserId(null);
         setSession(data.session);
         setUser(data.user);
         setIsDemoUser(false);
+        localStorage.removeItem(DEMO_USER_STORAGE_KEY);
       }
 
       return {
@@ -214,25 +321,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         data: data ? { user: data.user, session: data.session } : null,
       };
     },
-    [configured]
+    [configured, setPasswordRecoveryUserId]
   );
 
   // Sign Out
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (): Promise<{ error: AuthError | Error | null }> => {
+    if (configured && supabase) {
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error) return { error };
+      } catch (err) {
+        console.warn('[Pothole Reporter] Error during sign out:', err);
+        return {
+          error: err instanceof Error ? err : new Error('Could not sign out of the portal.'),
+        };
+      }
+    }
+    demoModeRef.current = false;
     localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+    setPasswordRecoveryUserId(null);
     clearSignedUrlCache();
+    authUserIdRef.current = null;
     setIsDemoUser(false);
     setUser(null);
     setSession(null);
+    return { error: null };
+  }, [configured, setPasswordRecoveryUserId]);
 
-    if (configured && supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch (err) {
-        console.warn('[Pothole Reporter] Error during sign out:', err);
+  const requestPasswordReset = useCallback(
+    async (email: string): Promise<{ error: AuthError | Error | null }> => {
+      if (!configured || !supabase) {
+        return { error: new Error('Password recovery is unavailable because Supabase is not configured.') };
       }
-    }
-  }, [configured]);
+
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+        return { error };
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error : new Error('Could not request a password reset email.'),
+        };
+      }
+    },
+    [configured]
+  );
+
+  const updatePassword = useCallback(
+    async (password: string): Promise<{ error: AuthError | Error | null }> => {
+      if (!configured || !supabase) {
+        return { error: new Error('Password recovery is unavailable because Supabase is not configured.') };
+      }
+
+      const recoveryUserId = passwordRecoveryUserIdRef.current;
+      if (!recoveryUserId || demoModeRef.current) {
+        return { error: new Error('This password recovery link is invalid or expired. Request a new link.') };
+      }
+
+      try {
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) return { error: sessionError };
+        if (!data.session || data.session.user.id !== recoveryUserId) {
+          setPasswordRecoveryUserId(null);
+          return { error: new Error('This password recovery link is invalid or expired. Request a new link.') };
+        }
+
+        const { error } = await supabase.auth.updateUser({ password });
+        if (!error) setPasswordRecoveryUserId(null);
+        return { error };
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error : new Error('Could not update the password.'),
+        };
+      }
+    },
+    [configured, setPasswordRecoveryUserId]
+  );
+
+  const cancelPasswordRecovery = useCallback(() => {
+    setPasswordRecoveryUserId(null);
+  }, [setPasswordRecoveryUserId]);
 
   // Resend confirmation email
   const resendConfirmation = useCallback(
@@ -256,13 +425,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [configured]
   );
 
-  // Enable demo session for unconfigured environment testing
-  const enableDemoSession = useCallback(() => {
+  // Enable local demo mode after ending this browser's live Supabase session.
+  const enableDemoSession = useCallback(async (): Promise<{ error: AuthError | Error | null }> => {
+    const switchGeneration = ++demoSwitchGenerationRef.current;
+    const restoreLiveSession = async () => {
+      if (!supabase) return;
+      try {
+        const { data } = await supabase.auth.getSession();
+        const restoredSession = data.session;
+        const restoredUserId = restoredSession?.user?.id ?? null;
+        if (authUserIdRef.current !== restoredUserId) {
+          clearSignedUrlCache();
+          authUserIdRef.current = restoredUserId;
+        }
+        setSession(restoredSession);
+        setUser(restoredSession?.user ?? null);
+        setIsDemoUser(false);
+        setLoading(false);
+      } catch (restoreError) {
+        console.warn('[Pothole Reporter] Failed to restore session after demo sign-out error:', restoreError);
+      }
+    };
+
+    if (configured && supabase) {
+      demoSwitchInProgressRef.current = true;
+      try {
+        const { error } = await supabase.auth.signOut({ scope: 'local' });
+        if (error) {
+          demoSwitchInProgressRef.current = false;
+          if (!demoModeRef.current) await restoreLiveSession();
+          return { error };
+        }
+      } catch (error) {
+        demoSwitchInProgressRef.current = false;
+        if (!demoModeRef.current) await restoreLiveSession();
+        return {
+          error: error instanceof Error ? error : new Error('Could not sign out of the live account.'),
+        };
+      }
+      demoSwitchInProgressRef.current = false;
+      if (switchGeneration !== demoSwitchGenerationRef.current) {
+        return { error: new Error('A password recovery session became active before demo mode could be enabled.') };
+      }
+    }
+
+    demoModeRef.current = true;
+    authUserIdRef.current = null;
+    setPasswordRecoveryUserId(null);
     localStorage.setItem(DEMO_USER_STORAGE_KEY, 'true');
+    clearSignedUrlCache();
+    setSession(null);
     setUser(MOCK_DEMO_USER);
     setIsDemoUser(true);
-    setSession(null);
-  }, []);
+    setLoading(false);
+    return { error: null };
+  }, [configured, setPasswordRecoveryUserId]);
 
   const profile = useMemo(() => extractProfile(user), [user, extractProfile]);
 
@@ -275,9 +492,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isConfigured: configured,
       configError: configStatus.errorMessage,
       isDemoUser,
+      isPasswordRecovery,
       signIn,
       signUp,
       signOut,
+      requestPasswordReset,
+      updatePassword,
+      cancelPasswordRecovery,
       resendConfirmation,
       enableDemoSession,
     }),
@@ -289,9 +510,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       configured,
       configStatus.errorMessage,
       isDemoUser,
+      isPasswordRecovery,
       signIn,
       signUp,
       signOut,
+      requestPasswordReset,
+      updatePassword,
+      cancelPasswordRecovery,
       resendConfirmation,
       enableDemoSession,
     ]

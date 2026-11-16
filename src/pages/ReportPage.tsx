@@ -22,7 +22,7 @@ import { detectPotholes, type DetectionResponse } from '../services/api';
 
 export const ReportPage: React.FC = () => {
   const navigate = useNavigate();
-  const { createReport, showToast, isLiveSync } = useReports();
+  const { createReport, showToast, isLiveSync, isLoading, error } = useReports();
   const { user, profile, isDemoUser } = useAuth();
   const currentIdentity = isDemoUser ? 'demo' : user?.id ?? null;
   const activeSubmissionIdentityRef = useRef<string | null>(currentIdentity);
@@ -420,15 +420,25 @@ export const ReportPage: React.FC = () => {
               Civic Intake Form
             </span>
           </div>
-          {isLiveSync ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-              <Database className="h-3.5 w-3.5 text-emerald-600" /> Live Supabase Mode
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
-              <Info className="h-3.5 w-3.5 text-amber-600" /> Demo Session Mode
-            </span>
-          )}
+          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold border px-2.5 py-0.5 rounded-full ${
+            isDemoUser
+              ? 'text-amber-800 bg-amber-50 border-amber-200'
+              : error
+                ? 'text-orange-800 bg-orange-50 border-orange-200'
+                : isLiveSync
+                  ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                  : 'text-slate-700 bg-slate-50 border-slate-200'
+          }`} title={error || undefined}>
+            {isDemoUser ? (
+              <><Info className="h-3.5 w-3.5 text-amber-600" /> Demo Session Mode</>
+            ) : error ? (
+              <><AlertCircle className="h-3.5 w-3.5 text-orange-600" /> {isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'}</>
+            ) : isLiveSync ? (
+              <><Database className="h-3.5 w-3.5 text-emerald-600" /> Live Supabase Mode</>
+            ) : (
+              <><Info className="h-3.5 w-3.5 text-slate-500" /> {isLoading ? 'Connecting to Live Reports' : 'Live Sync Unavailable'}</>
+            )}
+          </span>
         </div>
         <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-0.5">
           Submit Road Defect Report

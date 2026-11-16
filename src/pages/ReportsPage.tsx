@@ -15,14 +15,34 @@ import { ReportFilters } from '../components/reports/ReportFilters';
 import { ReportTable } from '../components/reports/ReportTable';
 import { ReportDrawer } from '../components/reports/ReportDrawer';
 import { Button } from '../components/common/Button';
-import type { FilterOptions, PotholeReport } from '../types/report';
+import type { FilterOptions } from '../types/report';
 import { exportReportsAsJSON, exportReportsAsGeoJSON } from '../utils/export';
 import { useAuth } from '../hooks/useAuth';
 
 export const ReportsPage: React.FC = () => {
   const { reports, isLoading, error, refreshReports, isLiveSync } = useReports();
   const { user, isDemoUser } = useAuth();
-  const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
+  const reportsKey = JSON.stringify(reports.map((report) => report.id));
+  const [reportSelection, setReportSelection] = useState(() => ({
+    reportId: null as string | null,
+    reportsKey,
+  }));
+
+  if (reportSelection.reportsKey !== reportsKey) {
+    const stillAvailable = reportSelection.reportId !== null &&
+      reports.some((report) => report.id === reportSelection.reportId);
+    setReportSelection({
+      reportId: stillAvailable ? reportSelection.reportId : null,
+      reportsKey,
+    });
+  }
+
+  const selectReport = (reportId: string | null) => {
+    setReportSelection({ reportId, reportsKey });
+  };
+  const selectedReport = reportSelection.reportId
+    ? reports.find((report) => report.id === reportSelection.reportId) ?? null
+    : null;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [reportScope, setReportScope] = useState<'all' | 'mine'>('all');
 
@@ -116,15 +136,25 @@ export const ReportsPage: React.FC = () => {
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Civic Registry
             </span>
-            {isLiveSync ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
-                <Database className="h-3 w-3 text-emerald-600" /> Supabase Live Synced
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
-                <Info className="h-3 w-3 text-amber-600" /> Local Demo Mode
-              </span>
-            )}
+            <span className={`inline-flex items-center gap-1 text-[10px] font-bold border px-2 py-0.5 rounded-full ${
+              isDemoUser
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : error
+                  ? 'bg-orange-50 text-orange-800 border-orange-200'
+                  : isLiveSync
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-slate-50 text-slate-700 border-slate-200'
+            }`} title={error || undefined}>
+              {isDemoUser ? (
+                <><Info className="h-3 w-3 text-amber-600" /> Local Demo Mode</>
+              ) : error ? (
+                <><AlertCircle className="h-3 w-3 text-orange-600" /> {isLiveSync ? 'Live Data · Refresh Failed' : 'Live Sync Error'}</>
+              ) : isLiveSync ? (
+                <><Database className="h-3 w-3 text-emerald-600" /> Supabase Live Synced</>
+              ) : (
+                <><Info className="h-3 w-3 text-slate-500" /> {isLoading ? 'Connecting to Live Reports' : 'Live Sync Unavailable'}</>
+              )}
+            </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-0.5">
             Pothole Reports & Grievance Ledger
@@ -241,7 +271,7 @@ export const ReportsPage: React.FC = () => {
       ) : (
         <ReportTable
           reports={filteredReports}
-          onSelectReport={(report) => setSelectedReport(report)}
+          onSelectReport={(report) => selectReport(report.id)}
           onResetFilters={() =>
             setFilters({
               search: '',
@@ -263,8 +293,8 @@ export const ReportsPage: React.FC = () => {
       {/* Slide-out Report Drawer */}
       <ReportDrawer
         report={selectedReport}
-        onClose={() => setSelectedReport(null)}
-        onSelectReport={setSelectedReport}
+        onClose={() => selectReport(null)}
+        onSelectReport={(report) => selectReport(report.id)}
       />
     </div>
   );

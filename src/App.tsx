@@ -5,6 +5,8 @@ import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { PasswordRecoveryPage } from './pages/PasswordRecoveryPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ReportPage } from './pages/ReportPage';
 import { MapPage } from './pages/MapPage';
@@ -21,6 +23,8 @@ function App() {
             {/* Public citizen authentication routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<PasswordRecoveryPage />} />
 
             {/* Protected routes requiring authenticated citizen session */}
             <Route element={<ProtectedRoute />}>

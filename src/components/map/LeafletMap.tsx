@@ -21,6 +21,34 @@ interface LeafletMapProps {
   className?: string;
 }
 
+type DuplicateFilter = 'all' | 'duplicates_only' | 'unique_only';
+
+function isReportPlottable(
+  report: PotholeReport,
+  statusFilter: 'all' | ReportStatus,
+  priorityFilter: 'all' | ReportPriority,
+  duplicateFilter: DuplicateFilter,
+  duplicateReportIds: Set<string>
+): boolean {
+  if (
+    !Number.isFinite(report.latitude) ||
+    !Number.isFinite(report.longitude) ||
+    report.latitude < -90 ||
+    report.latitude > 90 ||
+    report.longitude < -180 ||
+    report.longitude > 180
+  ) {
+    return false;
+  }
+  if (statusFilter !== 'all' && report.status !== statusFilter) return false;
+  if (priorityFilter !== 'all' && report.priority !== priorityFilter) return false;
+
+  const isDuplicate = duplicateReportIds.has(report.id);
+  if (duplicateFilter === 'duplicates_only' && !isDuplicate) return false;
+  if (duplicateFilter === 'unique_only' && isDuplicate) return false;
+  return true;
+}
+
 export const LeafletMap: React.FC<LeafletMapProps> = ({
   reports,
   duplicates = [],
@@ -35,7 +63,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
   const [statusFilter, setStatusFilter] = useState<'all' | ReportStatus>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ReportPriority>('all');
-  const [duplicateFilter, setDuplicateFilter] = useState<'all' | 'duplicates_only' | 'unique_only'>('all');
+  const [duplicateFilter, setDuplicateFilter] = useState<DuplicateFilter>('all');
 
   // Identify reports involved in pending duplicate pairs
   const duplicateReportIds = useMemo(() => {
@@ -46,8 +74,20 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         ids.add(d.incomingReportId);
       }
     });
+    reports.forEach((report) => {
+      if (report.duplicateOfId || (report.duplicateCount ?? 0) > 0) {
+        ids.add(report.id);
+      }
+    });
     return ids;
-  }, [duplicates]);
+  }, [duplicates, reports]);
+
+  const visibleReports = useMemo(
+    () => reports.filter((report) =>
+      isReportPlottable(report, statusFilter, priorityFilter, duplicateFilter, duplicateReportIds)
+    ),
+    [reports, statusFilter, priorityFilter, duplicateFilter, duplicateReportIds]
+  );
 
   // Initialize Map
   useEffect(() => {
@@ -116,21 +156,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
     markersGroup.clearLayers();
 
-    // Filter valid reports
-    const validReports = reports.filter((r) => {
-      if (typeof r.latitude !== 'number' || typeof r.longitude !== 'number') return false;
-      if (isNaN(r.latitude) || isNaN(r.longitude)) return false;
-      if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-      if (priorityFilter !== 'all' && r.priority !== priorityFilter) return false;
-
-      const isDuplicate = duplicateReportIds.has(r.id) || (Boolean(r.duplicateCount) && (r.duplicateCount ?? 0) > 0);
-      if (duplicateFilter === 'duplicates_only' && !isDuplicate) return false;
-      if (duplicateFilter === 'unique_only' && isDuplicate) return false;
-
-      return true;
-    });
-
-    validReports.forEach((report) => {
+    visibleReports.forEach((report) => {
       // Create custom SVG marker pin based on priority
       const getPinColor = (p: ReportPriority) => {
         switch (p) {
@@ -147,6 +173,11 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
       const pinColor = getPinColor(report.priority);
       const isFlaggedDuplicate = duplicateReportIds.has(report.id);
+      const duplicateDescription = report.duplicateOfId
+        ? `Confirmed duplicate · Master ${report.duplicateOfId}`
+        : (report.duplicateCount ?? 0) > 0
+          ? `Master report · ${report.duplicateCount} confirmed duplicate(s)`
+          : 'Pending duplicate candidate';
 
       const customIcon = L.divIcon({
         className: 'custom-pothole-pin',
@@ -192,7 +223,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         </div>
         ${
           isFlaggedDuplicate
-            ? `<div style="margin-bottom: 6px; padding: 3px 6px; border-radius: 4px; background: #fffbeb; border: 1px solid #fde68a; color: #b45309; font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 4px;">⚠ Flagged in Duplicate Review Queue</div>`
+            ? `<div style="margin-bottom: 6px; padding: 3px 6px; border-radius: 4px; background: #fffbeb; border: 1px solid #fde68a; color: #b45309; font-size: 10px; font-weight: 700;">${duplicateDescription}</div>`
             : ''
         }
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
@@ -201,6 +232,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             report.priority === 'critical' ? '#fee2e2; color: #991b1b' : '#fef3c7; color: #92400e'
           };">${report.priority}</span>
         </div>
+        <p style="font-size: 11px; color: #475569; margin: 0 0 6px 0;"><strong>Status:</strong> ${report.status.replace('_', ' ')}</p>
         <h4 style="font-size: 13px; font-weight: bold; margin: 0 0 4px 0; line-height: 1.3;">${report.roadName}</h4>
         <p style="font-size: 11px; color: #64748b; margin: 0 0 8px 0;">${report.zone} • Ward #${report.wardNumber}</p>
         <button id="inspect-btn-${report.id}" style="width: 100%; font-size: 11px; font-weight: 600; background: #0f172a; color: white; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer;">
@@ -219,15 +251,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       marker.bindPopup(popupHtml);
       marker.addTo(markersGroup);
     });
-  }, [reports, statusFilter, priorityFilter, duplicateFilter, duplicateReportIds, onSelectReport]);
-
-  const validCount = reports.filter(
-    (r) =>
-      typeof r.latitude === 'number' &&
-      !isNaN(r.latitude) &&
-      (statusFilter === 'all' || r.status === statusFilter) &&
-      (priorityFilter === 'all' || r.priority === priorityFilter)
-  ).length;
+  }, [visibleReports, duplicateReportIds, onSelectReport]);
 
   const handleJumpToHotspot = (lat: number, lng: number) => {
     if (mapInstanceRef.current) {
@@ -307,7 +331,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-            {validCount} Defect Markers Plotted
+            {visibleReports.length} Defect Markers Plotted
           </span>
           <Button
             variant="outline"
