@@ -69,8 +69,9 @@ export interface PotholeReport {
   updatedAt: string;
   simulatedAiDetection?: SimulatedAIDetection;
   realAiDetection?: RealAIDetection;
-  duplicateOfId?: string; // If merged into another report
-  duplicateCount?: number;
+  duplicateOfId?: string | null; // Canonical master report ID if merged
+  duplicateCount?: number; // Count of confirmed duplicate citizen reports linked into this ticket
+  priorityScore?: number | null; // Normalized civic priority score (0-100)
   userId?: string; // Authenticated citizen Supabase UUID
   imagePath?: string; // Storage path in pothole-originals
   annotatedImagePath?: string; // Storage path in pothole-annotated

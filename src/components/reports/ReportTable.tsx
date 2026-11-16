@@ -17,6 +17,8 @@ interface ReportTableProps {
   reports: PotholeReport[];
   onSelectReport: (report: PotholeReport) => void;
   onResetFilters?: () => void;
+  emptyTitle?: string;
+  emptyDescription?: string;
   pageSize?: number;
 }
 
@@ -24,6 +26,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
   reports,
   onSelectReport,
   onResetFilters,
+  emptyTitle,
+  emptyDescription,
   pageSize = 7,
 }) => {
   const navigate = useNavigate();
@@ -39,8 +43,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
     return (
       <EmptyState
         icon={FileQuestion}
-        title="No reports match your filters"
-        description="Try adjusting your search terms, status, priority, or zonal filters to view reports."
+        title={emptyTitle || 'No reports match your filters'}
+        description={emptyDescription || 'Try adjusting your search terms, status, priority, or zonal filters to view reports.'}
         actionLabel={onResetFilters ? 'Clear All Filters' : undefined}
         onAction={onResetFilters}
       />
@@ -92,7 +96,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                       </span>
                       {report.duplicateCount && report.duplicateCount > 0 ? (
                         <span className="text-[10px] text-orange-600 font-semibold">
-                          +{report.duplicateCount} duplicate
+                          +{report.duplicateCount} confirmed duplicate{report.duplicateCount === 1 ? '' : 's'}
                         </span>
                       ) : null}
                     </div>
@@ -121,12 +125,25 @@ export const ReportTable: React.FC<ReportTableProps> = ({
 
                 {/* Priority */}
                 <td className="py-3 px-4 whitespace-nowrap">
-                  <PriorityBadge priority={report.priority} size="sm" />
+                  <div className="flex flex-col items-start gap-1">
+                    <span className="text-[10px] text-slate-400">Citizen priority</span>
+                    <PriorityBadge priority={report.priority} size="sm" />
+                    <span className="text-[10px] font-medium text-slate-600">
+                      {report.priorityScore == null
+                        ? 'Calculated score pending'
+                        : `Civic score ${report.priorityScore}/100`}
+                    </span>
+                  </div>
                 </td>
 
                 {/* Status */}
                 <td className="py-3 px-4 whitespace-nowrap">
-                  <StatusBadge status={report.status} size="sm" />
+                  <div className="flex flex-col items-start gap-1">
+                    <StatusBadge status={report.status} size="sm" isDuplicate={Boolean(report.duplicateOfId)} />
+                    {report.status === 'rejected' && !report.duplicateOfId && (
+                      <span className="text-[10px] text-slate-500">Rejected report</span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Date */}

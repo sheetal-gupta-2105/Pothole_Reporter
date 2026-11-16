@@ -6,18 +6,20 @@ import { AlertCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 interface StatusBadgeProps {
   status: ReportStatus;
   size?: 'sm' | 'md';
+  isDuplicate?: boolean;
 }
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md' }) => {
+export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md', isDuplicate = false }) => {
   const config = getStatusBadgeConfig(status);
   const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs font-medium';
+  const duplicateClasses = 'bg-orange-50 text-orange-800 border-orange-200';
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border ${config.bg} ${config.text} ${config.border} ${sizeClasses}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border ${isDuplicate ? duplicateClasses : `${config.bg} ${config.text} ${config.border}`} ${sizeClasses}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
-      <span>{config.label}</span>
+      <span className={`h-1.5 w-1.5 rounded-full ${isDuplicate ? 'bg-orange-500' : config.dot}`} />
+      <span>{isDuplicate ? 'Confirmed duplicate' : config.label}</span>
     </span>
   );
 };

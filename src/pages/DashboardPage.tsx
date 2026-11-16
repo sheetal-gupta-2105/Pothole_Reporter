@@ -170,6 +170,7 @@ export const DashboardPage: React.FC = () => {
       <ReportDrawer
         report={selectedReport}
         onClose={() => setSelectedReport(null)}
+        onSelectReport={setSelectedReport}
       />
     </div>
   );

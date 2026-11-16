@@ -168,11 +168,23 @@ def test_review_duplicate_candidate_authorization():
     }
 
     mock_client = MagicMock()
-    mock_client.table().select().eq().execute.return_value = MagicMock(
-        data=[mock_candidate]
+    confirmed_candidate = {**mock_candidate, "status": "confirmed"}
+    primary_row = {"id": "rep-1", "user_id": CITIZEN_1_UUID, "duplicate_count": 1}
+    mock_client.table().select().eq().execute.side_effect = [
+        MagicMock(data=[mock_candidate]),  # citizen 1 initial lookup
+        MagicMock(data=[confirmed_candidate]),  # citizen 1 refreshed candidate
+        MagicMock(data=[primary_row]),  # citizen 1 primary report
+        MagicMock(data=[mock_candidate]),  # citizen 2 rejection lookup
+        MagicMock(data=[mock_candidate]),  # unauthorized citizen lookup
+        MagicMock(data=[mock_candidate]),  # admin initial lookup
+        MagicMock(data=[confirmed_candidate]),  # admin refreshed candidate
+        MagicMock(data=[primary_row]),  # admin primary report
+    ]
+    mock_client.rpc.return_value.execute.return_value = MagicMock(
+        data={"success": True, "candidate_id": "cand-001"}
     )
     mock_client.table().update().eq().execute.return_value = MagicMock(
-        data=[{**mock_candidate, "status": "confirmed"}]
+        data=[{**mock_candidate, "status": "rejected"}]
     )
 
     with patch("app.duplicate_service.is_supabase_configured", return_value=True), patch(
@@ -195,6 +207,7 @@ def test_review_duplicate_candidate_authorization():
             review_duplicate_candidate(
                 "cand-001", "confirmed", reviewer_user_id=CITIZEN_3_UUID, client=mock_client
             )
+        assert mock_client.rpc.call_count == 1
 
         # 4. Admin CAN review even if not an owner
         res_admin = review_duplicate_candidate(
@@ -215,19 +228,22 @@ def test_review_duplicate_candidate_stores_notes_and_reviewer():
     }
 
     mock_client = MagicMock()
-    mock_client.table().select().eq().execute.return_value = MagicMock(
-        data=[mock_candidate]
+    refreshed_candidate = {
+        **mock_candidate,
+        "status": "confirmed",
+        "review_notes": "Hazard merged",
+        "reviewed_by": CITIZEN_1_UUID,
+    }
+    mock_client.table().select().eq().execute.side_effect = [
+        MagicMock(data=[mock_candidate]),
+        MagicMock(data=[refreshed_candidate]),
+        MagicMock(data=[{"id": "rep-1", "duplicate_count": 1}]),
+    ]
+    mock_client.rpc.return_value.execute.return_value = MagicMock(
+        data={"success": True, "candidate_id": "cand-001"}
     )
-    mock_client.table().update().eq().execute.return_value = MagicMock(
-        data=[
-            {
-                **mock_candidate,
-                "status": "confirmed",
-                "review_notes": "Hazard merged",
-                "reviewed_by": CITIZEN_1_UUID,
-            }
-        ]
-    )
+    mock_client.table().update().eq().execute.return_value = MagicMock(data=[])
+    mock_client.table().update.reset_mock()
 
     with patch("app.duplicate_service.is_supabase_configured", return_value=True), patch(
         "app.duplicate_service.get_supabase_client", return_value=mock_client
@@ -240,13 +256,16 @@ def test_review_duplicate_candidate_stores_notes_and_reviewer():
             client=mock_client,
         )
         assert res["status"] == "confirmed"
-        # Check that table().update() was called with update_data containing review_notes and reviewed_by
-        update_call = mock_client.table().update.call_args
-        assert update_call is not None
-        update_dict = update_call[0][0]
-        assert update_dict["review_notes"] == "Hazard merged"
-        assert update_dict["reviewed_by"] == CITIZEN_1_UUID
-        assert update_dict["status"] == "confirmed"
+        mock_client.rpc.assert_called_once_with(
+            "confirm_duplicate_candidate",
+            {
+                "p_candidate_id": "cand-001",
+                "p_reviewer_user_id": CITIZEN_1_UUID,
+                "p_review_notes": "Hazard merged",
+            },
+        )
+        assert mock_client.table().update.call_count == 1  # priority score only
+        assert mock_client.table().update.call_args[0][0].keys() == {"priority_score", "updated_at"}
 
     # Test in-memory fallback store preserves review fields
     with patch("app.duplicate_service.is_supabase_configured", return_value=False):

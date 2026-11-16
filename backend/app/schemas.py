@@ -82,6 +82,9 @@ class ReportResponse(BaseModel):
     image_path: Optional[str] = None
     annotated_image_path: Optional[str] = None
     phash: Optional[str] = None
+    duplicate_of_id: Optional[str] = Field(None, description="Master report UUID if merged as duplicate")
+    duplicate_count: int = Field(0, ge=0, description="Count of confirmed duplicate citizen reports linked into this ticket")
+    priority_score: Optional[float] = Field(None, ge=0.0, le=100.0, description="Composite civic priority score (0-100)")
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

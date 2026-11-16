@@ -17,11 +17,14 @@ import { ReportDrawer } from '../components/reports/ReportDrawer';
 import { Button } from '../components/common/Button';
 import type { FilterOptions, PotholeReport } from '../types/report';
 import { exportReportsAsJSON, exportReportsAsGeoJSON } from '../utils/export';
+import { useAuth } from '../hooks/useAuth';
 
 export const ReportsPage: React.FC = () => {
   const { reports, isLoading, error, refreshReports, isLiveSync } = useReports();
+  const { user, isDemoUser } = useAuth();
   const [selectedReport, setSelectedReport] = useState<PotholeReport | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [reportScope, setReportScope] = useState<'all' | 'mine'>('all');
 
   const [filters, setFilters] = useState<FilterOptions>({
     search: '',
@@ -41,7 +44,11 @@ export const ReportsPage: React.FC = () => {
   };
 
   const filteredReports = useMemo(() => {
-    return reports
+    const scopedReports = reportScope === 'mine'
+      ? reports.filter((report) => !isDemoUser && report.userId === user?.id)
+      : reports;
+
+    return scopedReports
       .filter((report) => {
         // Search filter
         if (filters.search) {
@@ -94,7 +101,11 @@ export const ReportsPage: React.FC = () => {
         }
         return 0;
       });
-  }, [reports, filters]);
+  }, [reports, filters, reportScope, user?.id, isDemoUser]);
+
+  const scopedReportCount = reportScope === 'mine'
+    ? reports.filter((report) => !isDemoUser && report.userId === user?.id).length
+    : reports.length;
 
   return (
     <div className="space-y-5">
@@ -188,11 +199,37 @@ export const ReportsPage: React.FC = () => {
       )}
 
       {/* Filter Toolbar */}
+      <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1" role="group" aria-label="Report ownership filter">
+        {([
+          ['all', 'All Civic Reports'],
+          ['mine', 'My Submitted Reports'],
+        ] as const).map(([scope, label]) => (
+          <button
+            key={scope}
+            type="button"
+            aria-pressed={reportScope === scope}
+            onClick={() => setReportScope(scope)}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+              reportScope === scope
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {reportScope === 'mine' && isDemoUser && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Demo reports are not associated with a Supabase account, so personal submissions are unavailable in demo mode.
+        </p>
+      )}
+
       <ReportFilters
         filters={filters}
         onChange={setFilters}
         totalFiltered={filteredReports.length}
-        totalAvailable={reports.length}
+        totalAvailable={scopedReportCount}
       />
 
       {/* Table & Inspector */}
@@ -214,11 +251,21 @@ export const ReportsPage: React.FC = () => {
               sortBy: 'newest',
             })
           }
+          emptyTitle={reportScope === 'mine' ? 'No submitted reports found' : undefined}
+          emptyDescription={reportScope === 'mine'
+            ? isDemoUser
+              ? 'Demo reports are not linked to a Supabase user account.'
+              : 'No reports submitted by your signed-in account match these filters.'
+            : undefined}
         />
       )}
 
       {/* Slide-out Report Drawer */}
-      <ReportDrawer report={selectedReport} onClose={() => setSelectedReport(null)} />
+      <ReportDrawer
+        report={selectedReport}
+        onClose={() => setSelectedReport(null)}
+        onSelectReport={setSelectedReport}
+      />
     </div>
   );
 };

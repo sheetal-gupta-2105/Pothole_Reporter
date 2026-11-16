@@ -134,7 +134,9 @@ export function mapDbRowToPotholeReport(
     imagePath: row.image_path || undefined,
     annotatedImagePath: row.annotated_image_path || undefined,
     isLiveRecord: true,
-    duplicateCount: 0,
+    duplicateOfId: row.duplicate_of_id,
+    duplicateCount: row.duplicate_count,
+    priorityScore: row.priority_score,
   };
 }
 

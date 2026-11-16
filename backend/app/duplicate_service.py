@@ -12,6 +12,7 @@ import uuid
 
 from .geo import haversine_distance_meters, bounding_box_for_radius
 from .phash import compute_phash, hamming_distance, similarity_percentage
+from .priority import calculate_priority_score
 from .supabase_client import (
     get_supabase_client,
     is_supabase_configured,
@@ -455,7 +456,84 @@ def review_duplicate_candidate(
             "Forbidden: You can only review duplicate candidates for reports that you submitted."
         )
 
-    # 3. Update candidate
+    # 3. Confirmation is owned entirely by the transactional PostgreSQL RPC.
+    if new_status == "confirmed":
+        try:
+            rpc_res = db_client.rpc(
+                "confirm_duplicate_candidate",
+                {
+                    "p_candidate_id": candidate_id,
+                    "p_reviewer_user_id": reviewer_user_id,
+                    "p_review_notes": review_notes,
+                },
+            ).execute()
+        except Exception as rpc_err:
+            err_msg = str(rpc_err)
+            # Business and integrity conflicts are client errors; other failures
+            # propagate to the API's server-error handler.
+            known_conflicts = (
+                "not found",
+                "identical",
+                "already marked as a duplicate",
+                "already linked",
+                "cannot confirm duplicate candidate",
+                "already a duplicate of",
+            )
+            if any(conflict in err_msg.lower() for conflict in known_conflicts):
+                raise ValueError(err_msg) from rpc_err
+            raise
+
+        rpc_data = getattr(rpc_res, "data", None)
+        if isinstance(rpc_data, list):
+            rpc_data = rpc_data[0] if rpc_data else None
+        if not isinstance(rpc_data, dict) or rpc_data.get("success") is not True:
+            raise RuntimeError(
+                f"confirm_duplicate_candidate RPC did not confirm candidate '{candidate_id}'."
+            )
+
+        # Re-read the committed candidate and both reports to return the same
+        # joined structure expected by DuplicateCandidateResponse.
+        refreshed_res = (
+            db_client.table(TABLE_DUPLICATE_CANDIDATES)
+            .select("*, primary_report:reports!primary_report_id(*), incoming_report:reports!incoming_report_id(*)")
+            .eq("id", candidate_id)
+            .execute()
+        )
+        if not refreshed_res.data:
+            raise RuntimeError(f"Failed to refresh confirmed duplicate candidate '{candidate_id}'.")
+
+        result = refreshed_res.data[0]
+        primary_report = result.get("primary_report") or {}
+        incoming_report = result.get("incoming_report") or {}
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Recalculate using the duplicate_count committed by the RPC.
+        primary_id = result.get("primary_report_id")
+        try:
+            pri_res = db_client.table(TABLE_REPORTS).select("*").eq("id", primary_id).execute()
+            if pri_res.data and isinstance(pri_res.data, list):
+                pri_row = pri_res.data[0]
+                breakdown = calculate_priority_score(
+                    priority=pri_row.get("priority"),
+                    pothole_count=pri_row.get("pothole_count", 0),
+                    ai_detection=pri_row.get("ai_detection"),
+                    duplicate_count=pri_row.get("duplicate_count", 0),
+                    created_at=pri_row.get("created_at"),
+                )
+                db_client.table(TABLE_REPORTS).update({
+                    "priority_score": breakdown.total_score,
+                    "updated_at": now_iso,
+                }).eq("id", primary_id).execute()
+                pri_row["priority_score"] = breakdown.total_score
+                primary_report = pri_row
+        except Exception as pri_err:
+            logger.warning("Failed to recalculate priority score after duplicate confirmation: %s", pri_err)
+
+        result["primary_report"] = primary_report
+        result["incoming_report"] = incoming_report
+        return result
+
+    # 4. Rejection updates review metadata directly; it does not alter reports.
     now_iso = datetime.now(timezone.utc).isoformat()
     update_data = {
         "status": new_status,
@@ -476,6 +554,7 @@ def review_duplicate_candidate(
         raise RuntimeError(f"Failed to update duplicate candidate '{candidate_id}'.")
 
     result = updated_res.data[0]
+
     result["primary_report"] = primary_report
     result["incoming_report"] = incoming_report
     return result

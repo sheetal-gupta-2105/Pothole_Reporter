@@ -68,7 +68,7 @@ const STORAGE_REPORTS_KEY = 'blr_pothole_reports_v1';
 const STORAGE_DUPLICATES_KEY = 'blr_pothole_duplicates_v1';
 
 export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isConfigured, isDemoUser } = useAuth();
+  const { user, session, isConfigured, isDemoUser } = useAuth();
   const currentIdentity = isDemoUser ? 'demo' : user?.id ?? null;
   const activeIdentityRef = useRef<string | null>(currentIdentity);
   const reportRequestIdRef = useRef(0);
@@ -282,6 +282,7 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Trigger backend spatial and perceptual duplicate check
         let duplicateFound = false;
+        let duplicateCheckFailed = false;
         try {
           const liveCandidates = await triggerReportDuplicateCheck(created.id);
           if (liveCandidates && liveCandidates.length > 0) {
@@ -298,55 +299,22 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             );
           }
         } catch (checkErr) {
+          duplicateCheckFailed = true;
           console.debug('[Pothole Reporter] Automatic duplicate scan notice:', checkErr);
         }
 
-        if (!duplicateFound) {
-          // Proximity fallback check
-          const nearbyReport = reports.find((r) => {
-            const dist = calculateDistanceMeters(
-              input.latitude,
-              input.longitude,
-              r.latitude,
-              r.longitude
-            );
-            return dist <= 50;
-          });
-
-          if (nearbyReport) {
-            const distance = calculateDistanceMeters(
-              input.latitude,
-              input.longitude,
-              nearbyReport.latitude,
-              nearbyReport.longitude
-            );
-            const simulatedSimilarity = Math.min(98, Math.max(72, Math.round(100 - distance * 0.5)));
-
-            const newPair: DuplicatePair = {
-              id: `DUP-PAIR-${Math.floor(100 + Math.random() * 900)}`,
-              primaryReportId: nearbyReport.id,
-              incomingReportId: created.id,
-              distanceMeters: distance,
-              simulatedVisualSimilarity: simulatedSimilarity,
-              clusterConfidence: Math.round((simulatedSimilarity + (100 - distance)) / 2),
-              status: 'pending',
-              classification: simulatedSimilarity >= 85 ? 'strong_duplicate' : 'possible_duplicate',
-              reason: `Spatial proximity (${distance}m within 50m threshold).`,
-            };
-
-            setDuplicates((prev) => [newPair, ...prev]);
-            showToast(
-              'warning',
-              'Potential Duplicate Flagged',
-              `New submission is within ${distance}m of existing defect ${nearbyReport.id}. Added to review queue.`
-            );
-          } else {
-            showToast(
-              'success',
-              'Report Persisted in Supabase',
-              `Successfully stored in public.reports and images saved to private storage.`
-            );
-          }
+        if (duplicateCheckFailed) {
+          showToast(
+            'warning',
+            'Report Saved; Duplicate Scan Incomplete',
+            'The report was saved, but the authenticated duplicate scan did not complete.'
+          );
+        } else if (!duplicateFound) {
+          showToast(
+            'success',
+            'Report Persisted in Supabase',
+            'Successfully stored in public.reports and images saved to private storage.'
+          );
         }
 
         setReports((prev) => [created, ...prev]);
@@ -558,14 +526,12 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const pair = duplicates.find((d) => d.id === pairId);
     if (!pair) return;
 
-    // Check authorization for live records
-    if (pair.isLiveRecord && isConfigured && !isDemoUser && user) {
-      const isOwner = user.id === pair.primaryReportUserId || user.id === pair.incomingReportUserId;
-      if (!isOwner) {
+    if (pair.isLiveRecord) {
+      if (!isConfigured || isDemoUser || !user || !session || session.user.id !== user.id) {
         showToast(
           'error',
-          'Unauthorized Review Action',
-          'Only the citizen who submitted either report (or an administrator) can confirm this duplicate match.'
+          'Sign In Required',
+          'A valid signed-in Supabase session is required to review a live duplicate.'
         );
         return;
       }
@@ -573,7 +539,12 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         await reviewDuplicateCandidate(pairId, 'confirmed', notes);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to confirm duplicate';
+        const backendMessage = err instanceof Error ? err.message : 'Failed to confirm duplicate';
+        const msg = backendMessage.toLowerCase().includes(
+          'only review duplicate candidates for reports that you submitted'
+        )
+          ? 'You are not authorized to review this duplicate. The backend permits review by a report submitter or administrator.'
+          : backendMessage;
         showToast('error', 'Review Failed', msg);
         return;
       }
@@ -618,20 +589,22 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       'Duplicate Confirmed',
       `Complaint ${pair.incomingReportId} linked into master report ${pair.primaryReportId}.`
     );
+
+    if (pair.isLiveRecord) {
+      await refreshReports();
+    }
   };
 
   const rejectDuplicate = async (pairId: string, notes?: string) => {
     const pair = duplicates.find((d) => d.id === pairId);
     if (!pair) return;
 
-    // Check authorization for live records
-    if (pair.isLiveRecord && isConfigured && !isDemoUser && user) {
-      const isOwner = user.id === pair.primaryReportUserId || user.id === pair.incomingReportUserId;
-      if (!isOwner) {
+    if (pair.isLiveRecord) {
+      if (!isConfigured || isDemoUser || !user || !session || session.user.id !== user.id) {
         showToast(
           'error',
-          'Unauthorized Review Action',
-          'Only the citizen who submitted either report (or an administrator) can reject this duplicate match.'
+          'Sign In Required',
+          'A valid signed-in Supabase session is required to review a live duplicate.'
         );
         return;
       }
@@ -639,7 +612,12 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         await reviewDuplicateCandidate(pairId, 'rejected', notes);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to reject duplicate';
+        const backendMessage = err instanceof Error ? err.message : 'Failed to reject duplicate';
+        const msg = backendMessage.toLowerCase().includes(
+          'only review duplicate candidates for reports that you submitted'
+        )
+          ? 'You are not authorized to review this duplicate. The backend permits review by a report submitter or administrator.'
+          : backendMessage;
         showToast('error', 'Review Failed', msg);
         return;
       }
@@ -659,6 +637,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
 
     showToast('info', 'Duplicate Rejected', `Marked as independent distinct road defect.`);
+
+    if (pair.isLiveRecord) {
+      await refreshReports();
+    }
   };
 
   const resetToDefaults = () => {

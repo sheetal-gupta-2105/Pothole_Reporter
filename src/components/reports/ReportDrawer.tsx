@@ -25,10 +25,11 @@ import { useAuth } from '../../hooks/useAuth';
 interface ReportDrawerProps {
   report: PotholeReport | null;
   onClose: () => void;
+  onSelectReport?: (report: PotholeReport) => void;
 }
 
-export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) => {
-  const { updateReportStatus, updateReportPriority, deleteReport, showToast } = useReports();
+export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose, onSelectReport }) => {
+  const { updateReportStatus, updateReportPriority, deleteReport, showToast, getReportById } = useReports();
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [showAnnotatedDrawer, setShowAnnotatedDrawer] = useState(true);
@@ -44,6 +45,7 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) =
   };
 
   const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${report.latitude},${report.longitude}`;
+  const masterReport = report.duplicateOfId ? getReportById(report.duplicateOfId) : undefined;
 
   const currentDisplayImage =
     showAnnotatedDrawer && report.realAiDetection?.annotatedImageUrl
@@ -72,7 +74,7 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) =
               <span className="font-mono text-xs font-bold text-slate-500">
                 {report.id}
               </span>
-              <StatusBadge status={report.status} size="sm" />
+              <StatusBadge status={report.status} size="sm" isDuplicate={Boolean(report.duplicateOfId)} />
               <PriorityBadge priority={report.priority} size="sm" />
               {report.isLiveRecord && (
                 <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full">
@@ -168,6 +170,61 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) =
               {report.description || 'No additional description provided.'}
             </p>
           </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-slate-600">Citizen-selected priority</span>
+              <PriorityBadge priority={report.priority} size="sm" />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-slate-600">Calculated civic priority score</span>
+              <span className="text-sm font-bold text-slate-900">
+                {report.priorityScore == null ? 'Pending / unavailable' : `${report.priorityScore}/100`}
+              </span>
+            </div>
+            {report.priorityScore != null && (
+              <div
+                className="h-1.5 overflow-hidden rounded-full bg-slate-200"
+                role="progressbar"
+                aria-label="Calculated civic priority score"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={report.priorityScore}
+              >
+                <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(0, Math.min(100, report.priorityScore))}%` }} />
+              </div>
+            )}
+          </div>
+
+          {report.duplicateOfId ? (
+            <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2">
+              <p className="text-xs font-bold text-orange-900">Closed as a confirmed duplicate</p>
+              <p className="text-xs text-orange-800">
+                Master report reference: <span className="font-mono font-semibold">{report.duplicateOfId}</span>
+              </p>
+              {masterReport && onSelectReport ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onSelectReport(masterReport)}
+                  className="text-xs border-orange-300 text-orange-900 hover:bg-orange-100"
+                >
+                  Open master report
+                </Button>
+              ) : (
+                <p className="text-[11px] text-orange-800">
+                  The master report is unavailable in the reports currently accessible to your account.
+                </p>
+              )}
+            </div>
+          ) : report.status === 'rejected' ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+              <p className="text-xs font-semibold text-red-900">Rejected report</p>
+              <p className="text-[11px] text-red-800">
+                This report has no confirmed duplicate relationship.
+              </p>
+            </div>
+          ) : null}
 
           {/* AI Assessment Metrics: Real vs Simulated */}
           {report.realAiDetection ? (
@@ -354,7 +411,7 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose }) =
                 {report.duplicateCount && report.duplicateCount > 0 ? (
                   <span className="text-xs text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full font-semibold ml-auto flex items-center gap-1">
                     <Layers className="h-3 w-3" />
-                    {report.duplicateCount} duplicate(s) merged
+                    {report.duplicateCount} confirmed duplicate(s) merged
                   </span>
                 ) : null}
               </div>

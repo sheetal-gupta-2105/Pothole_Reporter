@@ -41,6 +41,7 @@ from .duplicate_service import (
     list_duplicate_candidates,
     review_duplicate_candidate,
 )
+from .priority import calculate_priority_score
 
 logger = logging.getLogger("pothole_reporter.api")
 
@@ -174,6 +175,8 @@ async def list_reports(
     """Retrieve all reports from Supabase PostgreSQL (public.reports) for authenticated citizens.
 
     Preserves city-wide metadata visibility across all wards for civic transparency.
+    Dynamically recalculates priority scores so aging reports and existing reports
+    with NULL priority scores reflect active civic ranking.
     """
     if not is_supabase_configured():
         return []
@@ -181,7 +184,27 @@ async def list_reports(
     client = get_supabase_client()
     try:
         res = client.table(TABLE_REPORTS).select("*").order("created_at", desc=True).execute()
-        return res.data or []
+        reports = res.data or []
+        for report in reports:
+            current_score = report.get("priority_score")
+            calc = calculate_priority_score(
+                priority=report.get("priority"),
+                pothole_count=report.get("pothole_count", 0),
+                ai_detection=report.get("ai_detection"),
+                duplicate_count=report.get("duplicate_count", 0),
+                created_at=report.get("created_at"),
+            )
+            fresh_score = calc.total_score
+            report["priority_score"] = fresh_score
+
+            # Opportunistically sync unpersisted or drifted score back to Supabase
+            if current_score is None or abs(float(current_score) - fresh_score) >= 1.0:
+                try:
+                    client.table(TABLE_REPORTS).update({"priority_score": fresh_score}).eq("id", report["id"]).execute()
+                except Exception as sync_err:
+                    logger.debug("Priority score sync failed for report %s: %s", report.get("id"), sync_err)
+
+        return reports
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -197,6 +220,7 @@ async def get_report_by_id(
     """Retrieve metadata for a single report by ID for authenticated citizens.
 
     Preserves city-wide defect metadata visibility while requiring verified citizen authentication.
+    Dynamically recalculates priority score if missing or drifted due to aging.
     """
     if not is_supabase_configured():
         raise HTTPException(
@@ -212,7 +236,25 @@ async def get_report_by_id(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Report with ID '{report_id}' not found.",
             )
-        return res.data[0]
+        report = res.data[0]
+        current_score = report.get("priority_score")
+        calc = calculate_priority_score(
+            priority=report.get("priority"),
+            pothole_count=report.get("pothole_count", 0),
+            ai_detection=report.get("ai_detection"),
+            duplicate_count=report.get("duplicate_count", 0),
+            created_at=report.get("created_at"),
+        )
+        fresh_score = calc.total_score
+        report["priority_score"] = fresh_score
+
+        if current_score is None or abs(float(current_score) - fresh_score) >= 1.0:
+            try:
+                client.table(TABLE_REPORTS).update({"priority_score": fresh_score}).eq("id", report_id).execute()
+            except Exception as sync_err:
+                logger.debug("Priority sync on get failed for %s: %s", report_id, sync_err)
+
+        return report
     except HTTPException:
         raise
     except Exception as exc:
@@ -246,6 +288,15 @@ async def create_report(
     client = get_supabase_client()
     report_id = str(uuid.uuid4())
 
+    # Calculate explainable civic priority score (Phase 5)
+    score_info = calculate_priority_score(
+        priority=report_data.priority,
+        pothole_count=report_data.pothole_count,
+        ai_detection=report_data.ai_detection,
+        duplicate_count=0,
+        created_at=None,
+    )
+
     row = {
         "id": report_id,
         "user_id": citizen.user_id,
@@ -256,6 +307,7 @@ async def create_report(
         "address": report_data.address,
         "status": "submitted",
         "priority": report_data.priority,
+        "priority_score": score_info.total_score,
         "pothole_count": report_data.pothole_count,
         "ai_detection": report_data.ai_detection or {},
         "image_path": report_data.image_path,
@@ -329,6 +381,17 @@ async def update_report(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Forbidden: You cannot modify a report filed by another citizen.",
             )
+
+        # Recalculate priority score if report priority changes
+        new_priority = updates.get("priority", report_row.get("priority"))
+        score_info = calculate_priority_score(
+            priority=new_priority,
+            pothole_count=report_row.get("pothole_count", 0),
+            ai_detection=report_row.get("ai_detection"),
+            duplicate_count=report_row.get("duplicate_count", 0),
+            created_at=report_row.get("created_at"),
+        )
+        updates["priority_score"] = score_info.total_score
 
         res = client.table(TABLE_REPORTS).update(updates).eq("id", report_id).execute()
         if not res.data or len(res.data) == 0:

@@ -181,6 +181,9 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
               <div className="absolute top-2 left-2">
                 <PriorityBadge priority={primaryReport.priority} size="sm" />
               </div>
+              <div className="absolute bottom-2 left-2 rounded bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-700">
+                Civic score: {primaryReport.priorityScore == null ? 'pending' : `${primaryReport.priorityScore}/100`}
+              </div>
             </div>
 
             <div>
@@ -232,6 +235,9 @@ export const DuplicatePairCard: React.FC<DuplicatePairCardProps> = ({
               />
               <div className="absolute top-2 left-2">
                 <PriorityBadge priority={incomingReport.priority} size="sm" />
+              </div>
+              <div className="absolute bottom-2 left-2 rounded bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-700">
+                Civic score: {incomingReport.priorityScore == null ? 'pending' : `${incomingReport.priorityScore}/100`}
               </div>
             </div>
 

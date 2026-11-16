@@ -26,6 +26,10 @@ export type Database = {
           ai_detection: Json | null;
           image_path: string | null;
           annotated_image_path: string | null;
+          phash: string | null;
+          duplicate_of_id: string | null;
+          duplicate_count: number;
+          priority_score: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -43,6 +47,10 @@ export type Database = {
           ai_detection?: Json | null;
           image_path?: string | null;
           annotated_image_path?: string | null;
+          phash?: string | null;
+          duplicate_of_id?: string | null;
+          duplicate_count?: number;
+          priority_score?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -60,6 +68,10 @@ export type Database = {
           ai_detection?: Json | null;
           image_path?: string | null;
           annotated_image_path?: string | null;
+          phash?: string | null;
+          duplicate_of_id?: string | null;
+          duplicate_count?: number;
+          priority_score?: number | null;
           created_at?: string;
           updated_at?: string;
         };
