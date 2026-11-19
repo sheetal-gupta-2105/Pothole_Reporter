@@ -55,3 +55,4 @@ htmlcov/
 
 # OS files
 Thumbs.db
+supabase/.temp/

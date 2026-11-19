@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 
@@ -509,6 +509,89 @@ async def create_signed_image_url(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Storage service failed to generate signed URL: {str(exc)}",
+        )
+
+
+@app.get("/api/reports/{report_id}/image-url", response_model=SignedUrlResponse)
+async def get_report_image_url(
+    report_id: str,
+    image_type: str = Query("original", description="Image type: 'original' or 'annotated'"),
+    expires_in: int = Query(3600, ge=60, le=86400, description="Expiration duration in seconds"),
+    citizen: AuthenticatedCitizen = Depends(get_current_citizen),
+):
+    """Generate time-limited signed URL for an image attached to any accessible city-wide report.
+
+    Allows authenticated citizens to view defect evidence across all Bengaluru wards while
+    keeping Storage buckets private. Derives the storage path directly from the verified
+    database report record rather than trusting client-supplied paths.
+    """
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase backend credentials are not configured.",
+        )
+
+    # 1. Validate image type
+    if image_type not in ["original", "annotated"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image_type. Must be 'original' or 'annotated'.",
+        )
+
+    bucket = BUCKET_POTHOLE_ORIGINALS if image_type == "original" else BUCKET_POTHOLE_ANNOTATED
+
+    # 2. Retrieve target report using backend service-role client to verify existence and get genuine storage path
+    client = get_supabase_client()
+    try:
+        res = client.table(TABLE_REPORTS).select("id, user_id, image_path, annotated_image_path").eq("id", report_id).execute()
+        if not res.data or len(res.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report with ID '{report_id}' not found.",
+            )
+
+        report_row = res.data[0]
+        stored_path = report_row.get("image_path") if image_type == "original" else report_row.get("annotated_image_path")
+
+        if not stored_path or not str(stored_path).strip():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No {image_type} image is attached to report '{report_id}'.",
+            )
+
+        # 3. Strictly validate the stored path against directory traversal and ensure user-scoped structure
+        validate_storage_path(stored_path, report_row["user_id"])
+
+        # 4. Ensure stored path belongs to this specific report ID
+        segments = stored_path.split("/")
+        if len(segments) < 2 or segments[1] != report_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Stored image path does not belong to the requested report ID.",
+            )
+
+        # 5. Generate signed URL via administrative service-role client
+        sign_res = client.storage.from_(bucket).create_signed_url(stored_path, expires_in)
+        signed_url = None
+        if isinstance(sign_res, dict):
+            signed_url = sign_res.get("signedURL") or sign_res.get("signedUrl")
+        elif hasattr(sign_res, "signed_url"):
+            signed_url = sign_res.signed_url
+
+        if not signed_url:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Failed to generate signed URL. Object may not exist in storage.",
+            )
+
+        return SignedUrlResponse(signed_url=signed_url, expires_in=expires_in)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to generate signed URL for report %s: %s", report_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Storage service failed to generate signed URL.",
         )
 
 

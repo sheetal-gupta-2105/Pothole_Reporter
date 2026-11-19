@@ -223,7 +223,7 @@ export async function createSupabaseReport(input: CreateReportInput): Promise<Po
     }
 
     // 5. Generate signed URLs for immediate display
-    const signedUrls = await getReportSignedUrls(originalPath, annotatedPath);
+    const signedUrls = await getReportSignedUrls(originalPath, annotatedPath, 3600, false, reportId);
     return mapDbRowToPotholeReport(data, signedUrls);
   } catch (err) {
     // Clean up uploaded storage objects to avoid orphaned files
@@ -259,7 +259,8 @@ export async function fetchSupabaseReports(forceRefresh = false): Promise<Pothol
         row.image_path,
         row.annotated_image_path,
         3600,
-        forceRefresh
+        forceRefresh,
+        row.id
       );
       return mapDbRowToPotholeReport(row, signedUrls);
     })

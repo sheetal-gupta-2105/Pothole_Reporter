@@ -4,7 +4,7 @@ import {
   MapPin,
   Calendar,
   User,
-  Phone,
+  Mail,
   Copy,
   ExternalLink,
   Cpu,
@@ -438,9 +438,9 @@ export const ReportDrawer: React.FC<ReportDrawerProps> = ({ report, onClose, onS
                 <User className="h-3.5 w-3.5 text-slate-400" />
                 <span>{report.reporterName}</span>
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5 text-slate-500">
-                <Phone className="h-3 w-3 text-slate-400" />
-                <span>{report.reporterContact}</span>
+              <div className="flex items-center gap-1.5 mt-0.5 text-slate-500" title="Citizen contact email">
+                <Mail className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate">{report.reporterContact}</span>
               </div>
             </div>
 

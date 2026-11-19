@@ -666,3 +666,294 @@ def test_existing_endpoints_remain_operational():
     res_health = client.get("/api/health")
     assert res_health.status_code == 200
     assert res_health.json()["status"] == "ok"
+
+
+# ==============================================================================
+# Phase 6.2: Cross-Citizen Image Access Tests
+# ==============================================================================
+
+def mock_citizen_2():
+    return AuthenticatedCitizen(
+        user_id=CITIZEN_2_UUID,
+        email="citizen2@example.com",
+        role="authenticated",
+        app_metadata={"provider": "email"},
+        user_metadata={"full_name": "Priya Patel"},
+    )
+
+
+def test_get_report_image_url_unauthenticated():
+    """Unauthenticated image access must be rejected with HTTP 401."""
+    response = client.get("/api/reports/report-123/image-url")
+    assert response.status_code == 401
+    assert "WWW-Authenticate" in response.headers
+
+
+def test_get_report_image_url_owner_success():
+    """Report owner can retrieve a signed URL for their report image."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    report_id = "report-123"
+
+    mock_db_client = MagicMock()
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": f"{CITIZEN_1_UUID}/{report_id}/original.jpg",
+                "annotated_image_path": f"{CITIZEN_1_UUID}/{report_id}/annotated.jpg",
+            }
+        ]
+    )
+    mock_bucket = MagicMock()
+    mock_bucket.create_signed_url.return_value = {"signedURL": "https://supabase.co/storage/v1/sign/orig-signed"}
+    mock_db_client.storage.from_.return_value = mock_bucket
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url?image_type=original&expires_in=3600",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["signed_url"] == "https://supabase.co/storage/v1/sign/orig-signed"
+            assert data["expires_in"] == 3600
+            mock_db_client.storage.from_.assert_called_with("pothole-originals")
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_cross_citizen_success():
+    """Citizen 2 can retrieve a signed URL for Citizen 1's accessible city-wide report."""
+    # Authenticated as Citizen 2
+    app.dependency_overrides[get_current_citizen] = mock_citizen_2
+    report_id = "report-owned-by-citizen-1"
+
+    mock_db_client = MagicMock()
+    # Report belongs to Citizen 1
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": f"{CITIZEN_1_UUID}/{report_id}/pothole_defect.jpg",
+                "annotated_image_path": f"{CITIZEN_1_UUID}/{report_id}/annotated.jpg",
+            }
+        ]
+    )
+    mock_bucket = MagicMock()
+    mock_bucket.create_signed_url.return_value = {"signedURL": "https://supabase.co/storage/v1/sign/cross-signed"}
+    mock_db_client.storage.from_.return_value = mock_bucket
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url?image_type=original",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["signed_url"] == "https://supabase.co/storage/v1/sign/cross-signed"
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_annotated_success():
+    """Authenticated citizen can request annotated YOLO detection evidence."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_2
+    report_id = "report-annotated-test"
+
+    mock_db_client = MagicMock()
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": f"{CITIZEN_1_UUID}/{report_id}/original.jpg",
+                "annotated_image_path": f"{CITIZEN_1_UUID}/{report_id}/annotated.jpg",
+            }
+        ]
+    )
+    mock_bucket = MagicMock()
+    mock_bucket.create_signed_url.return_value = {"signedURL": "https://supabase.co/storage/v1/sign/annotated-signed"}
+    mock_db_client.storage.from_.return_value = mock_bucket
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url?image_type=annotated",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["signed_url"] == "https://supabase.co/storage/v1/sign/annotated-signed"
+            mock_db_client.storage.from_.assert_called_with("pothole-annotated")
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_nonexistent_report_404():
+    """Requesting an image for a nonexistent report ID must return HTTP 404."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    mock_db_client = MagicMock()
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                "/api/reports/nonexistent-report/image-url",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 404
+            assert "not found" in response.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_invalid_image_type_400():
+    """Passing an unsupported image_type must fail with HTTP 400."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    with patch("app.main.is_supabase_configured", return_value=True):
+        try:
+            response = client.get(
+                "/api/reports/report-123/image-url?image_type=thumbnail",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 400
+            assert "invalid image_type" in response.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_missing_image_path_404():
+    """When the report exists but has no image path, return HTTP 404."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    report_id = "report-no-photo"
+
+    mock_db_client = MagicMock()
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": None,
+                "annotated_image_path": None,
+            }
+        ]
+    )
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url?image_type=original",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 404
+            assert "no original image is attached" in response.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_traversal_in_stored_path_rejected():
+    """Stored paths with directory traversal must be caught and rejected with HTTP 400."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    report_id = "report-bad-path"
+
+    mock_db_client = MagicMock()
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": f"{CITIZEN_1_UUID}/../other/stolen.jpg",
+            }
+        ]
+    )
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 400
+            assert "traversal" in response.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_mismatched_report_id_rejected():
+    """Stored path pointing to a different report ID must be rejected with HTTP 400."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    report_id = "report-legit"
+
+    mock_db_client = MagicMock()
+    # Image path references 'different-report-id' instead of 'report-legit'
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": f"{CITIZEN_1_UUID}/different-report-id/photo.jpg",
+            }
+        ]
+    )
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 400
+            assert "does not belong to the requested report id" in response.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)
+
+
+def test_get_report_image_url_storage_failure_handled():
+    """When Supabase storage service throws an exception, return HTTP 502 without credential leakage."""
+    app.dependency_overrides[get_current_citizen] = mock_citizen_1
+    report_id = "report-timeout"
+
+    mock_db_client = MagicMock()
+    mock_db_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[
+            {
+                "id": report_id,
+                "user_id": CITIZEN_1_UUID,
+                "image_path": f"{CITIZEN_1_UUID}/{report_id}/photo.jpg",
+            }
+        ]
+    )
+    mock_bucket = MagicMock()
+    mock_bucket.create_signed_url.side_effect = Exception("Internal storage connection timeout")
+    mock_db_client.storage.from_.return_value = mock_bucket
+
+    with patch("app.main.is_supabase_configured", return_value=True), patch(
+        "app.main.get_supabase_client", return_value=mock_db_client
+    ):
+        try:
+            response = client.get(
+                f"/api/reports/{report_id}/image-url",
+                headers={"Authorization": "Bearer mock-token"},
+            )
+            assert response.status_code == 502
+            assert "storage service failed" in response.json()["detail"].lower()
+        finally:
+            app.dependency_overrides.pop(get_current_citizen, None)

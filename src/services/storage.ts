@@ -1,4 +1,6 @@
-import { supabase, SUPABASE_BUCKETS } from '../lib/supabase';
+import { supabase, SUPABASE_BUCKETS, getSupabaseClient } from '../lib/supabase';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 /**
  * In-memory cache for signed URLs to prevent excessive Supabase Storage API calls.
@@ -174,14 +176,17 @@ export function clearSignedUrlCache(bucket?: string, path?: string): void {
  * Creates a short-lived signed URL for an object in a private Supabase bucket.
  * Uses an in-memory cache to minimize roundtrips.
  * Pass forceRefresh = true to bypass the cache and fetch a new signed URL.
+ * Falls back to authenticated backend endpoint when direct client Storage RLS denies peer citizen reads.
  */
 export async function getSignedImageUrl(
   bucket: string,
   path: string,
   expiresInSeconds = 3600,
-  forceRefresh = false
+  forceRefresh = false,
+  reportId?: string,
+  imageType: 'original' | 'annotated' = 'original'
 ): Promise<string | null> {
-  if (!supabase || !path) return null;
+  if (!path) return null;
 
   const cacheKey = `${bucket}:${path}`;
   const now = Date.now();
@@ -192,24 +197,59 @@ export async function getSignedImageUrl(
     return cached.url;
   }
 
-  try {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(path, expiresInSeconds);
+  // 1. If direct Supabase client is available, attempt direct signed URL first (fast for owner's own files)
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(path, expiresInSeconds);
 
-    if (error || !data?.signedUrl) {
-      return null;
+      if (!error && data?.signedUrl) {
+        signedUrlCache.set(cacheKey, {
+          url: data.signedUrl,
+          expiresAt: now + expiresInSeconds * 1000,
+        });
+        return data.signedUrl;
+      }
+    } catch {
+      // Direct client generation blocked by Storage RLS for peer citizen's files; fallback to backend
     }
-
-    signedUrlCache.set(cacheKey, {
-      url: data.signedUrl,
-      expiresAt: now + expiresInSeconds * 1000,
-    });
-
-    return data.signedUrl;
-  } catch {
-    return null;
   }
+
+  // 2. Cross-citizen signed URL generation via authenticated backend
+  if (reportId) {
+    try {
+      const client = getSupabaseClient();
+      const { data: sessionData } = await client.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (token) {
+        const res = await fetch(
+          `${API_BASE_URL}/api/reports/${encodeURIComponent(reportId)}/image-url?image_type=${encodeURIComponent(imageType)}&expires_in=${expiresInSeconds}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+
+        if (res.ok) {
+          const body = await res.json();
+          if (body?.signed_url) {
+            signedUrlCache.set(cacheKey, {
+              url: body.signed_url,
+              expiresAt: now + (body.expires_in || expiresInSeconds) * 1000,
+            });
+            return body.signed_url;
+          }
+        }
+      }
+    } catch {
+      // Backend signing failed; fall through to return null
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -219,7 +259,8 @@ export async function getReportSignedUrls(
   imagePath?: string | null,
   annotatedImagePath?: string | null,
   expiresInSeconds = 3600,
-  forceRefresh = false
+  forceRefresh = false,
+  reportId?: string
 ): Promise<{ originalUrl?: string; annotatedUrl?: string }> {
   const result: { originalUrl?: string; annotatedUrl?: string } = {};
 
@@ -227,7 +268,14 @@ export async function getReportSignedUrls(
 
   if (imagePath) {
     promises.push(
-      getSignedImageUrl(SUPABASE_BUCKETS.ORIGINALS, imagePath, expiresInSeconds, forceRefresh).then((url) => {
+      getSignedImageUrl(
+        SUPABASE_BUCKETS.ORIGINALS,
+        imagePath,
+        expiresInSeconds,
+        forceRefresh,
+        reportId,
+        'original'
+      ).then((url) => {
         if (url) result.originalUrl = url;
       })
     );
@@ -235,11 +283,16 @@ export async function getReportSignedUrls(
 
   if (annotatedImagePath) {
     promises.push(
-      getSignedImageUrl(SUPABASE_BUCKETS.ANNOTATED, annotatedImagePath, expiresInSeconds, forceRefresh).then(
-        (url) => {
-          if (url) result.annotatedUrl = url;
-        }
-      )
+      getSignedImageUrl(
+        SUPABASE_BUCKETS.ANNOTATED,
+        annotatedImagePath,
+        expiresInSeconds,
+        forceRefresh,
+        reportId,
+        'annotated'
+      ).then((url) => {
+        if (url) result.annotatedUrl = url;
+      })
     );
   }
 
