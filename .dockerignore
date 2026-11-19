@@ -1,0 +1,47 @@
+# Environment files (CRITICAL: NEVER bake secrets or .env files into Docker images)
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+
+# Python virtual environments & bytecode
+.venv/
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# Python test & coverage artifacts
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+
+# Local ML model weights (downloaded deterministically during image build)
+**/*.pt
+**/*.pth
+**/*.onnx
+**/*.bin
+backend/models/*.pt
+backend/models/*.pth
+
+# Frontend source, dependencies, and build outputs
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+dist-ssr/
+/src/
+/public/
+
+# Git and IDE configurations
+.git/
+.github/
+.vscode/
+.idea/
+*.local
+
+# OS generated files
+.DS_Store
+Thumbs.db
